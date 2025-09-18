@@ -1,140 +1,128 @@
 import streamlit as st
 import pandas as pd
 import altair as alt
+from io import BytesIO
 
-# Judul Aplikasi
-st.title("📊 Aplikasi Filter & Visualisasi Data")
-st.write("Upload file (CSV, Excel, ODS), pilih kolom yang ingin difilter, lalu tampilkan hasilnya dalam tabel dan grafik.")
+st.title("📊 Aplikasi Penggabungan, Penyaringan, dan Visualisasi Data")
 
-# Upload File
+# Upload beberapa file
 uploaded_files = st.file_uploader(
-    "Unggah satu atau lebih file",
-    type=["csv", "xlsx", "ods"],
+    "Unggah beberapa file (Excel/CSV/ODS)",
+    type=["xlsx", "csv", "ods"],
     accept_multiple_files=True
 )
 
 if uploaded_files:
-    dataframes = []
-    for uploaded_file in uploaded_files:
-        if uploaded_file.name.endswith(".csv"):
-            df = pd.read_csv(uploaded_file)
-        elif uploaded_file.name.endswith(".xlsx"):
-            df = pd.read_excel(uploaded_file, sheet_name=None)  # semua sheet
-            df = pd.concat(df.values(), ignore_index=True)
-        elif uploaded_file.name.endswith(".ods"):
-            df = pd.read_excel(uploaded_file, engine="odf", sheet_name=None)
-            df = pd.concat(df.values(), ignore_index=True)
-        dataframes.append(df)
+    dfs = []
 
-    # Gabungkan semua file
-    df = pd.concat(dataframes, ignore_index=True)
-
-    st.subheader("📑 Data Asli")
-    st.dataframe(df.head(20), use_container_width=True)
-
-    # =====================
-    # Filter Data
-    # =====================
-    st.subheader("🔎 Filter Data")
-
-    all_cols = df.columns.tolist()
-    filter_columns = st.multiselect("Pilih kolom yang ingin ditampilkan", all_cols)
-
-    if filter_columns:
-        filtered_df = df[filter_columns]  # hanya kolom yang dipilih
-        st.dataframe(filtered_df, use_container_width=True)
-
-        # =====================
-        # Visualisasi
-        # =====================
-        st.subheader("📊 Visualisasi Data")
-
-        x_axis = st.selectbox("Pilih sumbu X", filter_columns)
-        y_axis = st.selectbox("Pilih sumbu Y", filter_columns)
-
-        chart_type = st.radio("Pilih jenis grafik", ["Diagram Batang", "Diagram Garis", "Diagram Sebar"])
-
-        # Tentukan tipe data
-        def col_type(col):
-            if pd.api.types.is_numeric_dtype(filtered_df[col]):
-                return "quantitative"
-            elif pd.api.types.is_datetime64_any_dtype(filtered_df[col]):
-                return "temporal"
+    for file in uploaded_files:
+        try:
+            if file.name.endswith(".csv"):
+                df = pd.read_csv(file)
+            elif file.name.endswith(".xlsx"):
+                df = pd.read_excel(file, engine="openpyxl")
+            elif file.name.endswith(".ods"):
+                df = pd.read_excel(file, engine="odf")
             else:
-                return "nominal"
+                st.warning(f"Format file {file.name} tidak didukung, dilewati.")
+                continue
 
-        x_type = col_type(x_axis)
-        y_type = col_type(y_axis)
+            df["Sumber_File"] = file.name
+            dfs.append(df)
 
-        # Pilih grafik
-        if chart_type == "Diagram Batang":
-            chart = alt.Chart(filtered_df).mark_bar().encode(
-                x=alt.X(x_axis, type=x_type),
-                y=alt.Y(y_axis, type=y_type),
-                tooltip=filter_columns
-            )
-        elif chart_type == "Diagram Garis":
-            chart = alt.Chart(filtered_df).mark_line(point=True).encode(
-                x=alt.X(x_axis, type=x_type),
-                y=alt.Y(y_axis, type=y_type),
-                tooltip=filter_columns
-            )
-        else:  # Sebar
-            chart = alt.Chart(filtered_df).mark_circle(size=60).encode(
-                x=alt.X(x_axis, type=x_type),
-                y=alt.Y(y_axis, type=y_type),
-                tooltip=filter_columns
-            )
+        except Exception as e:
+            st.error(f"Gagal membaca {file.name}: {e}")
 
-        st.altair_chart(chart, use_container_width=True)
+    if dfs:
+        all_data = pd.concat(dfs, ignore_index=True)
+
+        st.subheader("🔎 Data Gabungan")
+        st.dataframe(all_data.head())
+
+        # Filter dinamis
+        filter_columns = st.multiselect("Pilih kolom yang ingin difilter & ditampilkan", all_data.columns)
+        filtered_df = all_data.copy()
+
+        if filter_columns:
+            for col in filter_columns:
+                unique_vals = filtered_df[col].dropna().unique().tolist()
+                selected_vals = st.multiselect(f"Pilih nilai untuk kolom {col}", unique_vals)
+                if selected_vals:
+                    filtered_df = filtered_df[filtered_df[col].isin(selected_vals)]
+
+            # tampilkan hanya kolom yang difilter
+            filtered_df = filtered_df[filter_columns]
+
+        st.subheader("📌 Hasil Penyaringan")
+        st.dataframe(filtered_df)
 
         # =====================
-        # Download Hasil
+        # Visualisasi Grafik
         # =====================
-        st.subheader("💾 Unduh Hasil Filter")
+        if filter_columns and not filtered_df.empty:
+            st.subheader("📈 Visualisasi Data")
 
-        pilihan_download = st.radio("Pilih format unduhan", ["Excel (.xlsx)", "ODS (.ods)"])
+            all_cols = [c.strip() for c in filtered_df.columns.tolist()]
+            filtered_df.columns = all_cols
 
-        if pilihan_download == "Excel (.xlsx)":
-            from io import BytesIO
-            import xlsxwriter
+            x_axis = st.selectbox("Pilih kolom sumbu X", all_cols)
+            y_axis = st.selectbox("Pilih kolom sumbu Y", all_cols)
 
-            output = BytesIO()
-            with pd.ExcelWriter(output, engine="xlsxwriter") as writer:
-                filtered_df.to_excel(writer, index=False, sheet_name="Hasil Filter")
-            st.download_button(
-                label="⬇️ Download Excel",
-                data=output.getvalue(),
-                file_name="hasil_filter.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-            )
+            chart_type = st.radio("Pilih jenis grafik", ["Diagram Batang", "Diagram Garis", "Diagram Sebar"])
 
-        elif pilihan_download == "ODS (.ods)":
-            from io import BytesIO
-            import odf.opendocument
-            from odf.table import Table, TableRow, TableCell
-            from odf.text import P
+            # Fungsi deteksi tipe kolom
+            def detect_type(col):
+                if pd.api.types.is_numeric_dtype(filtered_df[col]):
+                    return "quantitative"
+                elif pd.api.types.is_datetime64_any_dtype(filtered_df[col]):
+                    return "temporal"
+                else:
+                    return "nominal"
 
-            ods_doc = odf.opendocument.OpenDocumentSpreadsheet()
-            table = Table(name="Hasil Filter")
+            x_type = detect_type(x_axis)
+            y_type = detect_type(y_axis)
 
-            for _, row in filtered_df.iterrows():
-                tr = TableRow()
-                for cell in row:
-                    tc = TableCell()
-                    tc.addElement(P(text=str(cell)))
-                    tr.addElement(tc)
-                table.addElement(tr)
+            if chart_type == "Diagram Batang":
+                chart = alt.Chart(filtered_df).mark_bar().encode(
+                    x=alt.X(x_axis, type=x_type),
+                    y=alt.Y(y_axis, type=y_type),
+                    tooltip=all_cols
+                )
+            elif chart_type == "Diagram Garis":
+                chart = alt.Chart(filtered_df).mark_line(point=True).encode(
+                    x=alt.X(x_axis, type=x_type),
+                    y=alt.Y(y_axis, type=y_type),
+                    tooltip=all_cols
+                )
+            else:  # Sebar
+                chart = alt.Chart(filtered_df).mark_circle(size=60).encode(
+                    x=alt.X(x_axis, type=x_type),
+                    y=alt.Y(y_axis, type=y_type),
+                    tooltip=all_cols
+                )
 
-            ods_doc.spreadsheet.addElement(table)
+            st.altair_chart(chart, use_container_width=True)
 
-            output = BytesIO()
-            ods_doc.save(output)
-            st.download_button(
-                label="⬇️ Download ODS",
-                data=output.getvalue(),
-                file_name="hasil_filter.ods",
-                mime="application/vnd.oasis.opendocument.spreadsheet"
-            )
-    else:
-        st.info("Silakan pilih kolom yang ingin ditampilkan.")
+        # =====================
+        # Unduh Hasil
+        # =====================
+        st.subheader("💾 Unduh Hasil")
+
+        if not filtered_df.empty:
+            # CSV
+            csv = filtered_df.to_csv(index=False).encode("utf-8")
+            st.download_button("Unduh sebagai CSV", csv, "hasil_filter.csv", "text/csv")
+
+            # Excel
+            excel_buffer = BytesIO()
+            with pd.ExcelWriter(excel_buffer, engine="openpyxl") as writer:
+                filtered_df.to_excel(writer, index=False, sheet_name="Hasil")
+            st.download_button("Unduh sebagai Excel (.xlsx)", excel_buffer.getvalue(),
+                               "hasil_filter.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+
+            # ODS
+            ods_buffer = BytesIO()
+            with pd.ExcelWriter(ods_buffer, engine="odf") as writer:
+                filtered_df.to_excel(writer, index=False, sheet_name="Hasil")
+            st.download_button("Unduh sebagai ODS (.ods)", ods_buffer.getvalue(),
+                               "hasil_filter.ods", "application/vnd.oasis.opendocument.spreadsheet")
