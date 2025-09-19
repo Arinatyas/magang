@@ -15,7 +15,7 @@ def baca_file(file):
         xls = pd.ExcelFile(file, engine="openpyxl" if ext=="xlsx" else "odf")
         for sheet in xls.sheet_names:
             try:
-                # baca beberapa baris awal untuk cek header
+                # cek header baris mana yang paling penuh
                 df_preview = pd.read_excel(
                     file, sheet_name=sheet, nrows=3, header=None,
                     engine="openpyxl" if ext=="xlsx" else "odf"
@@ -23,15 +23,24 @@ def baca_file(file):
                 filled_counts = df_preview.notna().sum(axis=1)
                 max_filled_idx = filled_counts.idxmax()
 
-                # baca full sheet
+                # baca full sheet pakai header yang benar
                 df_sheet = pd.read_excel(
                     file, sheet_name=sheet, header=max_filled_idx,
                     engine="openpyxl" if ext=="xlsx" else "odf"
                 )
 
+                # --- Hapus kolom Unnamed ---
+                df_sheet = df_sheet.loc[:, ~df_sheet.columns.astype(str).str.contains("^Unnamed")]
+
                 # --- Bersihkan baris kosong / tidak lengkap ---
                 df_sheet = df_sheet.dropna(how="all")       # hapus baris kosong total
                 df_sheet = df_sheet.dropna(thresh=2)        # hapus baris yg isi < 2 kolom
+
+                # --- Hapus baris yang duplikat header ---
+                df_sheet = df_sheet[~df_sheet.apply(
+                    lambda row: row.astype(str).tolist() == df_sheet.columns.astype(str).tolist(),
+                    axis=1
+                )]
 
                 # --- Isi nilai kosong ---
                 df_sheet = df_sheet.replace(r'^\s*$', pd.NA, regex=True)
@@ -56,6 +65,9 @@ def baca_file(file):
 
     elif ext == "csv":
         df_csv = pd.read_csv(file)
+
+        # --- Hapus kolom Unnamed ---
+        df_csv = df_csv.loc[:, ~df_csv.columns.astype(str).str.contains("^Unnamed")]
 
         # isi kosong
         df_csv = df_csv.replace(r'^\s*$', pd.NA, regex=True)
