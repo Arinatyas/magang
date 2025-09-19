@@ -3,116 +3,109 @@ import pandas as pd
 import altair as alt
 
 st.title("📊 Aplikasi Gabung, Filter, dan Visualisasi Data Multi-Sheet")
-st.write("Unggah beberapa file (Excel/CSV/ODS) sekaligus")
 
-# ====================
-# Upload file
-# ====================
+# Upload beberapa file
 uploaded_files = st.file_uploader(
-    "Upload file (Excel/CSV/ODS)", 
-    type=["xlsx", "csv", "ods"], 
+    "Unggah beberapa file (Excel/CSV/ODS) sekaligus",
+    type=["csv", "xlsx", "ods"],
     accept_multiple_files=True
 )
 
+# Input header row
 header_row = st.number_input(
-    "Pilih baris header (mulai dari 0, misalnya baris ke-6 berarti 5)", 
-    min_value=0, 
-    value=0
+    "Pilih baris header (mulai dari 0, misalnya baris ke-6 berarti 5)",
+    min_value=0, value=0, step=1
 )
 
-semua_data = []
-
-def baca_file(file, header_row):
-    ext = file.name.split(".")[-1].lower()
-    dfs = []
-
-    if ext in ["xlsx", "xls"]:
-        xls = pd.ExcelFile(file)
-        for sheet in xls.sheet_names:
-            raw_df = pd.read_excel(file, sheet_name=sheet, header=None, engine="openpyxl")
-            # Isi baris kosong sebelum header dengan baris sebelumnya
-            raw_df.iloc[:header_row] = raw_df.iloc[:header_row].ffill()
-            # Baca ulang dengan header yang benar
-            df = pd.read_excel(file, sheet_name=sheet, header=header_row, engine="openpyxl")
-            dfs.append(df)
-
-    elif ext == "ods":
-        xls = pd.ExcelFile(file, engine="odf")
-        for sheet in xls.sheet_names:
-            raw_df = pd.read_excel(file, sheet_name=sheet, header=None, engine="odf")
-            raw_df.iloc[:header_row] = raw_df.iloc[:header_row].ffill()
-            df = pd.read_excel(file, sheet_name=sheet, header=header_row, engine="odf")
-            dfs.append(df)
-
-    elif ext == "csv":
-        raw_df = pd.read_csv(file, header=None)
-        raw_df.iloc[:header_row] = raw_df.iloc[:header_row].ffill()
-        df = pd.read_csv(file, header=header_row)
-        dfs.append(df)
-
-    return dfs
+all_data = []
 
 if uploaded_files:
-    for file in uploaded_files:
-        semua_data.extend(baca_file(file, header_row))
+    for uploaded_file in uploaded_files:
+        filename = uploaded_file.name
 
-if semua_data:
-    all_data = pd.concat(semua_data, ignore_index=True)
-
-    # ========================
-    # Isi data kosong setelah header
-    # ========================
-    for col in all_data.columns:
-        if all_data[col].dtype == "object":
-            all_data[col] = all_data[col].fillna("Kosong")
+        if filename.endswith(".csv"):
+            df_raw = pd.read_csv(uploaded_file, header=None)
+        elif filename.endswith(".xlsx"):
+            df_raw = pd.read_excel(uploaded_file, sheet_name=None, header=None)
+            # Gabungkan semua sheet Excel
+            df_raw = pd.concat(df_raw.values(), ignore_index=True)
+        elif filename.endswith(".ods"):
+            df_raw = pd.read_excel(uploaded_file, engine="odf", sheet_name=None, header=None)
+            # Gabungkan semua sheet ODS
+            df_raw = pd.concat(df_raw.values(), ignore_index=True)
         else:
-            all_data[col] = all_data[col].fillna(0)
+            continue
 
-    # ========================
-    # Tampilkan data gabungan
-    # ========================
+        # Perbaiki header kosong dengan baris sebelumnya
+        headers = df_raw.iloc[header_row].tolist()
+        if header_row > 0:
+            prev_row = df_raw.iloc[header_row - 1].tolist()
+            headers = [
+                headers[i] if pd.notna(headers[i]) and headers[i] != "" else prev_row[i]
+                for i in range(len(headers))
+            ]
+
+        df = df_raw[(header_row + 1):].copy()
+        df.columns = headers
+
+        # Ganti data kosong
+        for col in df.columns:
+            if pd.api.types.is_numeric_dtype(df[col]):
+                df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0)
+            else:
+                df[col] = df[col].fillna("")
+
+        all_data.append(df)
+
+    # Gabungkan semua data
+    data = pd.concat(all_data, ignore_index=True)
+
     st.subheader("🔎 Data Gabungan (setelah diproses)")
-    st.dataframe(all_data.head())
+    st.write(data.head())
 
-    # ========================
     # Filter kolom
-    # ========================
-    st.subheader("Pilih kolom yang ingin difilter & ditampilkan")
-    filter_columns = st.multiselect("Pilih kolom:", all_data.columns)
-
-    filtered_data = all_data.copy()
-    for col in filter_columns:
-        unique_vals = filtered_data[col].unique().tolist()
-        selected_vals = st.multiselect(f"Pilih nilai untuk kolom {col}", unique_vals)
-        if selected_vals:
-            filtered_data = filtered_data[filtered_data[col].isin(selected_vals)]
+    selected_col = st.selectbox("Pilih kolom yang ingin difilter & ditampilkan", data.columns)
+    if selected_col:
+        selected_values = st.multiselect("Pilih nilai untuk kolom " + selected_col, data[selected_col].unique())
+        if selected_values:
+            filtered_data = data[data[selected_col].isin(selected_values)]
+        else:
+            filtered_data = data
+    else:
+        filtered_data = data
 
     st.subheader("📌 Hasil Penyaringan")
-    st.dataframe(filtered_data.head())
+    st.write(filtered_data)
 
-    # ========================
     # Visualisasi
-    # ========================
-    if not filtered_data.empty:
-        st.subheader("📈 Visualisasi Data")
-        x_axis = st.selectbox("Pilih kolom sumbu X", all_data.columns)
-        y_axis = st.selectbox("Pilih kolom sumbu Y", all_data.columns)
-        chart_type = st.radio("Pilih jenis grafik", ["Diagram Batang", "Diagram Garis", "Diagram Sebar"])
+    st.subheader("📈 Visualisasi Data")
+    x_col = st.selectbox("Pilih kolom sumbu X", data.columns)
+    y_col = st.selectbox("Pilih kolom sumbu Y", data.columns)
 
-        chart = None
+    chart_type = st.selectbox(
+        "Pilih jenis grafik",
+        ["Diagram Batang", "Diagram Garis", "Diagram Sebar"]
+    )
+
+    # Konversi Y ke numerik jika bisa
+    try:
+        data[y_col] = pd.to_numeric(data[y_col], errors="coerce")
+    except:
+        pass
+
+    if pd.api.types.is_numeric_dtype(data[y_col]):
         if chart_type == "Diagram Batang":
-            chart = alt.Chart(filtered_data).mark_bar().encode(
-                x=x_axis, y=y_axis, tooltip=list(filtered_data.columns)
-            )
+            chart = alt.Chart(data).mark_bar().encode(x=x_col, y=y_col)
         elif chart_type == "Diagram Garis":
-            chart = alt.Chart(filtered_data).mark_line(point=True).encode(
-                x=x_axis, y=y_axis, tooltip=list(filtered_data.columns)
-            )
-        elif chart_type == "Diagram Sebar":
-            chart = alt.Chart(filtered_data).mark_circle(size=60).encode(
-                x=x_axis, y=y_axis, tooltip=list(filtered_data.columns)
-            )
+            chart = alt.Chart(data).mark_line().encode(x=x_col, y=y_col)
+        else:
+            chart = alt.Chart(data).mark_point().encode(x=x_col, y=y_col)
+    else:
+        chart = alt.Chart(data).mark_bar().encode(
+            x=x_col,
+            y="count()",
+            color=y_col
+        )
 
-        if chart:
-            st.altair_chart(chart, use_container_width=True)
-            
+    st.altair_chart(chart, use_container_width=True)
+    
