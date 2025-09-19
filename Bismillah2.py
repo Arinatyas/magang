@@ -12,15 +12,15 @@ uploaded_files = st.file_uploader(
     accept_multiple_files=True
 )
 
-# Input header row (biar tidak error sebelum diisi)
+# Input header row (default = 0 kalau tidak diisi)
 header_row = st.number_input(
     "Pilih baris header (mulai dari 0, misalnya baris ke-6 berarti 5)",
-    min_value=0, step=1
+    min_value=0, step=1, value=0
 )
 
 all_data = []
 
-if uploaded_files and header_row is not None:
+if uploaded_files:
     for uploaded_file in uploaded_files:
         filename = uploaded_file.name
 
@@ -31,31 +31,33 @@ if uploaded_files and header_row is not None:
 
         # === XLSX ===
         elif filename.endswith(".xlsx"):
-            xls = pd.read_excel(uploaded_file, sheet_name=None, header=None)
+            xls = pd.read_excel(uploaded_file, sheet_name=None, header=None, engine="openpyxl")
             sheets = xls
 
         # === ODS ===
         elif filename.endswith(".ods"):
-            ods = pd.read_excel(uploaded_file, sheet_name=None, engine="odf", header=None)
+            ods = pd.read_excel(uploaded_file, sheet_name=None, header=None, engine="odf")
             sheets = ods
         else:
             continue
 
-        # Proses semua sheet
+        # Proses semua sheet → gabungkan
         for sheet_name, df_raw in sheets.items():
-            if header_row >= len(df_raw):
-                continue  # skip kalau baris header lebih besar dari panjang data
+            # Tentukan header (kalau lebih dari jumlah baris, fallback ke 0)
+            h = header_row if header_row < len(df_raw) else 0
 
-            # Perbaiki header kosong dengan baris sebelumnya
-            headers = df_raw.iloc[header_row].tolist()
-            if header_row > 0:
-                prev_row = df_raw.iloc[header_row - 1].tolist()
+            # Ambil header dari baris ke-h
+            headers = df_raw.iloc[h].tolist()
+
+            # Kalau ada kosong → ganti dengan baris sebelumnya
+            if h > 0:
+                prev_row = df_raw.iloc[h - 1].tolist()
                 headers = [
                     headers[i] if pd.notna(headers[i]) and headers[i] != "" else prev_row[i]
                     for i in range(len(headers))
                 ]
 
-            df = df_raw[(header_row + 1):].copy()
+            df = df_raw[(h + 1):].copy()
             df.columns = headers
 
             # Isi kosong (0 untuk numerik, "" untuk kategori)
@@ -65,41 +67,35 @@ if uploaded_files and header_row is not None:
                 else:
                     df[col] = df[col].fillna("")
 
-            # Tambahkan kolom sumber
+            # Tambahkan metadata sumber
             df["Sumber_File"] = filename
             df["Sumber_Sheet"] = sheet_name
 
             all_data.append(df)
 
+    # Gabungkan semua sheet + file jadi satu
     if all_data:
         data = pd.concat(all_data, ignore_index=True)
 
         st.subheader("🔎 Data Gabungan (setelah diproses)")
-        st.write(data.head())
+        st.dataframe(data.head())
 
         # === FILTER ===
         st.subheader("🔎 Filter Data")
 
-        # Filter file & sheet
-        pilih_file = st.multiselect("Pilih File", data["Sumber_File"].unique())
-        pilih_sheet = st.multiselect("Pilih Sheet", data["Sumber_Sheet"].unique())
+        filter_cols = st.multiselect(
+            "Pilih kolom untuk difilter",
+            data.columns.tolist()
+        )
 
         filtered_data = data.copy()
-        if pilih_file:
-            filtered_data = filtered_data[filtered_data["Sumber_File"].isin(pilih_file)]
-        if pilih_sheet:
-            filtered_data = filtered_data[filtered_data["Sumber_Sheet"].isin(pilih_sheet)]
-
-        # Filter kolom lain
-        filter_cols = st.multiselect("Pilih kolom lain untuk difilter", [c for c in data.columns if c not in ["Sumber_File", "Sumber_Sheet"]])
-
         for col in filter_cols:
-            values = st.multiselect(f"Pilih nilai untuk kolom {col}", data[col].unique())
+            values = st.multiselect(f"Pilih nilai untuk {col}", data[col].unique())
             if values:
                 filtered_data = filtered_data[filtered_data[col].isin(values)]
 
         st.subheader("📌 Hasil Penyaringan")
-        st.write(filtered_data)
+        st.dataframe(filtered_data)
 
         # === UNDUH HASIL ===
         st.markdown("### ⬇️ Unduh Hasil Penyaringan")
@@ -132,33 +128,40 @@ if uploaded_files and header_row is not None:
 
         # === VISUALISASI ===
         st.subheader("📈 Visualisasi Data")
-        x_col = st.selectbox("Pilih kolom sumbu X", [c for c in filtered_data.columns if c not in ["Sumber_File", "Sumber_Sheet"]])
-        y_col = st.selectbox("Pilih kolom sumbu Y", [c for c in filtered_data.columns if c not in ["Sumber_File", "Sumber_Sheet"]])
+        if not filtered_data.empty:
+            cols = [c for c in filtered_data.columns if c not in ["Sumber_File", "Sumber_Sheet"]]
+            if len(cols) >= 2:
+                x_col = st.selectbox("Pilih kolom sumbu X", cols)
+                y_col = st.selectbox("Pilih kolom sumbu Y", cols)
 
-        chart_type = st.selectbox(
-            "Pilih jenis grafik",
-            ["Diagram Batang", "Diagram Garis", "Diagram Sebar"]
-        )
+                chart_type = st.selectbox(
+                    "Pilih jenis grafik",
+                    ["Diagram Batang", "Diagram Garis", "Diagram Sebar"]
+                )
 
-        try:
-            filtered_data[y_col] = pd.to_numeric(filtered_data[y_col], errors="coerce")
-        except:
-            pass
+                try:
+                    filtered_data[y_col] = pd.to_numeric(filtered_data[y_col], errors="coerce")
+                except:
+                    pass
 
-        if pd.api.types.is_numeric_dtype(filtered_data[y_col]):
-            if chart_type == "Diagram Batang":
-                chart = alt.Chart(filtered_data).mark_bar().encode(x=x_col, y=y_col)
-            elif chart_type == "Diagram Garis":
-                chart = alt.Chart(filtered_data).mark_line().encode(x=x_col, y=y_col)
-            else:
-                chart = alt.Chart(filtered_data).mark_point().encode(x=x_col, y=y_col)
-        else:
-            chart = alt.Chart(filtered_data).mark_bar().encode(
-                x=x_col,
-                y="count()",
-                color=y_col
-            )
+                if chart_type == "Diagram Batang":
+                    chart = alt.Chart(filtered_data).mark_bar().encode(x=x_col, y=y_col)
+                elif chart_type == "Diagram Garis":
+                    chart = alt.Chart(filtered_data).mark_line().encode(x=x_col, y=y_col)
+                else:
+                    chart = alt.Chart(filtered_data).mark_point().encode(x=x_col, y=y_col)
 
-        st.altair_chart(chart, use_container_width=True)
+                st.altair_chart(chart, use_container_width=True)
 
-    
+                # Unduh visualisasi PNG
+                try:
+                    chart_bytes = chart.save(fp=None, format="png")
+                    st.download_button(
+                        "Unduh Gambar PNG",
+                        chart_bytes,
+                        file_name="visualisasi.png",
+                        mime="image/png"
+                    )
+                except:
+                    st.info("Gunakan klik kanan grafik untuk unduh gambar.")
+                
