@@ -1,108 +1,140 @@
 import streamlit as st
 import pandas as pd
 import altair as alt
-from io import BytesIO
+import io
 
-# ========================
-# Fungsi bantu
-# ========================
-
-# Buat nama kolom unik (jika duplikat)
-def make_unique(columns):
-    seen = {}
-    new_cols = []
-    for col in columns:
-        if col in seen:
-            seen[col] += 1
-            new_cols.append(f"{col}_{seen[col]}")
-        else:
-            seen[col] = 0
-            new_cols.append(col)
-    return new_cols
-
-# Baca file dengan header yang dipilih
-def baca_file(file, header_row):
-    ext = file.name.split(".")[-1].lower()
-    df = None
-
-    try:
-        if ext in ["xls", "xlsx"]:
-            df = pd.read_excel(file, header=header_row, engine="openpyxl")
-        elif ext == "ods":
-            df = pd.read_excel(file, header=header_row, engine="odf")
-        elif ext == "csv":
-            df = pd.read_csv(file, header=header_row)
-        else:
-            st.warning(f"Format file {ext} tidak didukung")
-            return []
-    except Exception as e:
-        st.warning(f"Gagal membaca {file.name}: {e}")
-        return []
-
-    # Hapus baris kosong total
-    df = df.dropna(how="all")
-
-    # Isi missing values
-    for col in df.columns:
-        if pd.api.types.is_numeric_dtype(df[col]):
-            df[col] = df[col].fillna(0)
-        else:
-            df[col] = df[col].fillna("data kosong")
-
-    # Tambah metadata
-    df["Sumber_File"] = file.name
-
-    return [df]
-
-# Tentukan tipe kolom (untuk Altair)
-def tipe_kolom(col, df):
-    if pd.api.types.is_numeric_dtype(df[col]):
-        return "quantitative"
-    elif pd.api.types.is_datetime64_any_dtype(df[col]):
-        return "temporal"
-    else:
-        return "nominal"
-
-
-# ========================
-# Streamlit App
-# ========================
-
-st.set_page_config(layout="wide")
 st.title("📊 Aplikasi Gabung, Filter, dan Visualisasi Data Multi-Sheet")
+st.write("Unggah beberapa file (Excel/CSV/ODS) sekaligus")
 
+# ====================
 # Upload file
+# ====================
 uploaded_files = st.file_uploader(
-    "Unggah beberapa file (Excel/CSV/ODS) sekaligus",
-    type=["xlsx", "csv", "ods"],
+    "Upload file (Excel/CSV/ODS)", 
+    type=["xlsx", "csv", "ods"], 
     accept_multiple_files=True
 )
 
-# Pilih header row
 header_row = st.number_input(
-    "Pilih baris header (mulai dari 0, misalnya baris ke-6 berarti 5)",
-    min_value=0, step=1, value=0
+    "Pilih baris header (mulai dari 0, misalnya baris ke-6 berarti 5)", 
+    min_value=0, 
+    value=0
 )
 
+semua_data = []
+
 if uploaded_files:
-    semua_data = []
     for file in uploaded_files:
-        semua_data.extend(baca_file(file, header_row))
+        if file.name.endswith(".xlsx"):
+            xls = pd.ExcelFile(file)
+            for sheet in xls.sheet_names:
+                df = pd.read_excel(file, sheet_name=sheet, header=header_row)
+                semua_data.append(df)
+        elif file.name.endswith(".ods"):
+            xls = pd.ExcelFile(file, engine="odf")
+            for sheet in xls.sheet_names:
+                df = pd.read_excel(file, sheet_name=sheet, header=header_row, engine="odf")
+                semua_data.append(df)
+        elif file.name.endswith(".csv"):
+            df = pd.read_csv(file, header=header_row)
+            semua_data.append(df)
 
-    if semua_data:
-        all_data = pd.concat(semua_data, ignore_index=True)
+if semua_data:
+    all_data = pd.concat(semua_data, ignore_index=True)
 
-        # Pastikan nama kolom unik
-        all_data.columns = make_unique(all_data.columns)
+    # ========================
+    # Bersihkan nama kolom
+    # ========================
+    new_columns = []
+    last_valid = "Kolom"
+    for col in all_data.columns:
+        if str(col).startswith("Unnamed") or str(col).strip() == "":
+            new_columns.append(last_valid)  # pakai nama sebelumnya
+        else:
+            new_columns.append(col)
+            last_valid = col
 
-        st.subheader("🔎 Data Gabungan")
-        st.dataframe(all_data.head())
+    # Pastikan nama unik
+    def make_unique(seq):
+        seen = {}
+        result = []
+        for item in seq:
+            if item in seen:
+                seen[item] += 1
+                result.append(f"{item}_{seen[item]}")
+            else:
+                seen[item] = 0
+                result.append(item)
+        return result
 
-        # ========================
-        # Filter
-        # ========================
-        filter_columns = st.multiselect(
-            "Pilih kolom yang ingin difilter & ditampilkan", all_data.columns.tolist()
+    all_data.columns = make_unique(new_columns)
+
+    # ========================
+    # Isi data kosong
+    # ========================
+    for col in all_data.columns:
+        if all_data[col].dtype == "object":
+            all_data[col] = all_data[col].fillna("Kosong")
+        else:
+            all_data[col] = all_data[col].fillna(0)
+
+    # ========================
+    # Tampilkan data gabungan
+    # ========================
+    st.subheader("🔎 Data Gabungan")
+    st.dataframe(all_data.head())
+
+    # ========================
+    # Filter kolom
+    # ========================
+    st.subheader("Pilih kolom yang ingin difilter & ditampilkan")
+    filter_columns = st.multiselect("Pilih kolom:", all_data.columns)
+
+    filtered_data = all_data.copy()
+    for col in filter_columns:
+        unique_vals = filtered_data[col].unique().tolist()
+        selected_vals = st.multiselect(f"Pilih nilai untuk kolom {col}", unique_vals)
+        if selected_vals:
+            filtered_data = filtered_data[filtered_data[col].isin(selected_vals)]
+
+    st.subheader("📌 Hasil Penyaringan")
+    st.dataframe(filtered_data.head())
+
+    # ========================
+    # Visualisasi
+    # ========================
+    st.subheader("📈 Visualisasi Data")
+    x_axis = st.selectbox("Pilih kolom sumbu X", all_data.columns)
+    y_axis = st.selectbox("Pilih kolom sumbu Y", all_data.columns)
+    chart_type = st.radio("Pilih jenis grafik", ["Diagram Batang", "Diagram Garis", "Diagram Sebar"])
+
+    chart = None
+    if chart_type == "Diagram Batang":
+        chart = alt.Chart(filtered_data).mark_bar().encode(
+            x=x_axis, y=y_axis, tooltip=list(filtered_data.columns)
+        )
+    elif chart_type == "Diagram Garis":
+        chart = alt.Chart(filtered_data).mark_line(point=True).encode(
+            x=x_axis, y=y_axis, tooltip=list(filtered_data.columns)
+        )
+    elif chart_type == "Diagram Sebar":
+        chart = alt.Chart(filtered_data).mark_circle(size=60).encode(
+            x=x_axis, y=y_axis, tooltip=list(filtered_data.columns)
+        )
+
+    if chart:
+        st.altair_chart(chart, use_container_width=True)
+
+        # Simpan grafik PNG / SVG
+        if st.button("💾 Simpan Grafik PNG"):
+            chart.save("chart.png")
+            with open("chart.png", "rb") as f:
+                st.download_button("Unduh PNG", f, "chart.png")
+
+        if st.button("💾 Simpan Grafik SVG"):
+            chart.save("chart.svg")
+            with open("chart.svg", "rb") as f:
+                st.download_button("Unduh SVG", f, "chart.svg")
         )
         filtered_df = all_data.copy()
 
