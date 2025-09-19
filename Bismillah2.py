@@ -1,133 +1,151 @@
 import streamlit as st
 import pandas as pd
+import io
 import altair as alt
-import os
 
-# === Fungsi bantu ===
-def read_file(filepath, header_row):
-    ext = os.path.splitext(filepath)[-1].lower()
-    try:
-        if ext in [".xls", ".xlsx"]:
-            xls = pd.ExcelFile(filepath)
-            sheets = []
-            for sheet in xls.sheet_names:
-                df = pd.read_excel(filepath, sheet_name=sheet, header=header_row)
-                # isi header kosong dengan header sebelumnya
-                df.columns = [
-                    col if col and not str(col).startswith("Unnamed") else f"{df.columns[i-1]}_{i}"
-                    if i > 0 else f"col_{i}"
-                    for i, col in enumerate(df.columns)
-                ]
-                sheets.append(df)
-            return pd.concat(sheets, ignore_index=True)
-        elif ext == ".ods":
-            xls = pd.ExcelFile(filepath, engine="odf")
-            sheets = []
-            for sheet in xls.sheet_names:
-                df = pd.read_excel(filepath, sheet_name=sheet, header=header_row, engine="odf")
-                df.columns = [
-                    col if col and not str(col).startswith("Unnamed") else f"{df.columns[i-1]}_{i}"
-                    if i > 0 else f"col_{i}"
-                    for i, col in enumerate(df.columns)
-                ]
-                sheets.append(df)
-            return pd.concat(sheets, ignore_index=True)
-        else:
-            return pd.DataFrame()
-    except Exception as e:
-        st.warning(f"Gagal baca {filepath}: {e}")
-        return pd.DataFrame()
+st.set_page_config(page_title="📊 Gabung & Visualisasi Data", layout="wide")
 
-# === Streamlit App ===
-st.title("📊 Penggabungan Multi Sheet & Multi File (ODS/Excel)")
+st.title("📊 Aplikasi Gabung, Filter, dan Visualisasi Data Multi-Sheet")
 
+# === UPLOAD FILE ===
 uploaded_files = st.file_uploader(
-    "Upload file Excel/ODS (boleh lebih dari satu)", 
-    type=["xls", "xlsx", "ods"], 
+    "Unggah beberapa file (Excel/CSV/ODS) sekaligus",
+    type=["xlsx", "csv", "ods"],
     accept_multiple_files=True
 )
 
-header_row = st.number_input("Pilih baris header (mulai dari 0)", min_value=0, value=0, step=1)
+header_row = st.number_input(
+    "Pilih baris header (mulai dari 0, misalnya baris ke-6 berarti 5)",
+    min_value=0, value=0
+)
+
+all_data = []
+
+def clean_headers(df):
+    """Isi header kosong dengan nilai dari sebelumnya"""
+    new_cols = []
+    prev = "Kolom"
+    for i, col in enumerate(df.columns):
+        if "Unnamed" in str(col) or str(col).strip() == "":
+            new_cols.append(f"{prev}_{i}")
+        else:
+            new_cols.append(str(col))
+            prev = str(col)
+    df.columns = new_cols
+    return df
+
+def clean_rows(df):
+    """Isi baris kosong dengan 0/kosong sesuai tipe"""
+    for col in df.columns:
+        if pd.api.types.is_numeric_dtype(df[col]):
+            df[col] = df[col].fillna(0)
+        else:
+            df[col] = df[col].fillna("kosong")
+    return df
 
 if uploaded_files:
-    all_data = []
     for file in uploaded_files:
-        df = read_file(file, header_row)
-        if not df.empty:
+        if file.name.endswith(".csv"):
+            df = pd.read_csv(file, header=header_row)
+            df = clean_headers(df)
+            df = clean_rows(df)
             all_data.append(df)
+        else:  # Excel atau ODS
+            xls = pd.ExcelFile(file)
+            for sheet in xls.sheet_names:
+                df = pd.read_excel(file, sheet_name=sheet, header=header_row)
+                df = clean_headers(df)
+                df = clean_rows(df)
+                df["Sumber_Sheet"] = f"{file.name} - {sheet}"
+                all_data.append(df)
 
-    if all_data:
-        data_gabungan = pd.concat(all_data, ignore_index=True)
-        st.subheader("📌 Data Gabungan")
-        st.dataframe(data_gabungan)
+    data_gabungan = pd.concat(all_data, ignore_index=True)
+else:
+    data_gabungan = pd.DataFrame()
 
-        # Filter kolom
-        kolom_pilihan = st.multiselect("Pilih kolom untuk penyaringan", options=data_gabungan.columns)
-        if kolom_pilihan:
-            data_penyaringan = data_gabungan[kolom_pilihan]
-            st.subheader("📌 Data Penyaringan")
-            st.dataframe(data_penyaringan)
+# === DATA GABUNGAN ===
+if not data_gabungan.empty:
+    st.subheader("🔎 Data Gabungan (setelah diproses)")
+    st.dataframe(data_gabungan.head())
 
-            # Visualisasi
-            if len(kolom_pilihan) >= 2:
-                chart = alt.Chart(data_penyaringan).mark_point().encode(
-                    x=kolom_pilihan[0],
-                    y=kolom_pilihan[1],
+    # === DATA PENYARINGAN ===
+    st.subheader("📌 Hasil Penyaringan")
+
+    kolom_pilihan = st.multiselect(
+        "Pilih kolom yang ingin ditampilkan & difilter:",
+        options=data_gabungan.columns.tolist(),
+        default=data_gabungan.columns[:2].tolist()
+    )
+
+    if kolom_pilihan:
+        data_penyaringan = data_gabungan[kolom_pilihan].copy()
+
+        for kol in kolom_pilihan:
+            nilai_unik = data_gabungan[kol].dropna().unique().tolist()
+            nilai_pilihan = st.multiselect(f"Pilih nilai untuk kolom {kol}:", nilai_unik)
+            if nilai_pilihan:
+                data_penyaringan = data_penyaringan[data_penyaringan[kol].isin(nilai_pilihan)]
+
+        st.dataframe(data_penyaringan)
+
+        # === DOWNLOAD FILTERED DATA ===
+        buffer_excel = io.BytesIO()
+        with pd.ExcelWriter(buffer_excel, engine="xlsxwriter") as writer:
+            data_penyaringan.to_excel(writer, index=False, sheet_name="FilteredData")
+        st.download_button(
+            "⬇️ Unduh Hasil Penyaringan (Excel)",
+            data=buffer_excel,
+            file_name="hasil_penyaringan.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
+
+        buffer_ods = io.BytesIO()
+        with pd.ExcelWriter(buffer_ods, engine="odf") as writer:
+            data_penyaringan.to_excel(writer, index=False, sheet_name="FilteredData")
+        st.download_button(
+            "⬇️ Unduh Hasil Penyaringan (ODS)",
+            data=buffer_ods,
+            file_name="hasil_penyaringan.ods",
+            mime="application/vnd.oasis.opendocument.spreadsheet"
+        )
+
+        # === VISUALISASI ===
+        st.subheader("📈 Visualisasi Data")
+        if len(kolom_pilihan) >= 2:
+            col1, col2 = kolom_pilihan[:2]
+
+            if pd.api.types.is_numeric_dtype(data_penyaringan[col1]) and pd.api.types.is_numeric_dtype(data_penyaringan[col2]):
+                chart = alt.Chart(data_penyaringan).mark_circle(size=60).encode(
+                    x=alt.X(col1, type="quantitative"),
+                    y=alt.Y(col2, type="quantitative"),
+                    tooltip=kolom_pilihan
+                ).interactive()
+                st.altair_chart(chart, use_container_width=True)
+
+            elif pd.api.types.is_numeric_dtype(data_penyaringan[col1]) and not pd.api.types.is_numeric_dtype(data_penyaringan[col2]):
+                chart = alt.Chart(data_penyaringan).mark_bar().encode(
+                    x=alt.X(col2, type="nominal"),
+                    y=alt.Y(col1, type="quantitative"),
                     tooltip=kolom_pilihan
                 )
                 st.altair_chart(chart, use_container_width=True)
 
-            # Unduh hasil
-            ext_download = st.radio("Pilih format unduhan", ["Excel (.xlsx)", "ODS (.ods)"])
-            if st.button("Unduh Hasil Penyaringan"):
-                if ext_download == "Excel (.xlsx)":
-                    out_path = "hasil_penyaringan.xlsx"
-                    data_penyaringan.to_excel(out_path, index=False)
-                else:
-                    out_path = "hasil_penyaringan.ods"
-                    data_penyaringan.to_excel(out_path, index=False, engine="odf")
+            elif not pd.api.types.is_numeric_dtype(data_penyaringan[col1]) and pd.api.types.is_numeric_dtype(data_penyaringan[col2]):
+                chart = alt.Chart(data_penyaringan).mark_bar().encode(
+                    x=alt.X(col1, type="nominal"),
+                    y=alt.Y(col2, type="quantitative"),
+                    tooltip=kolom_pilihan
+                )
+                st.altair_chart(chart, use_container_width=True)
 
-                with open(out_path, "rb") as f:
-                    st.download_button("📥 Klik untuk unduh", f, file_name=out_path)
-    else:
-        st.info("Tidak ada data valid dari file yang diupload.")
+            else:
+                chart = alt.Chart(data_penyaringan).mark_bar().encode(
+                    x=alt.X(col1, type="nominal"),
+                    y=alt.Y(col2, type="nominal"),
+                    tooltip=kolom_pilihan
+                )
+                st.altair_chart(chart, use_container_width=True)
+
 else:
-    st.info("Silakan upload file ODS/Excel terlebih dahulu.")
-
-# === VISUALISASI ===
-if len(kolom_pilihan) >= 2:
-    col1, col2 = kolom_pilihan[:2]
-
-    # cek tipe data
-    if pd.api.types.is_numeric_dtype(data_penyaringan[col1]) and pd.api.types.is_numeric_dtype(data_penyaringan[col2]):
-        chart = alt.Chart(data_penyaringan).mark_circle(size=60).encode(
-            x=alt.X(col1, type="quantitative"),
-            y=alt.Y(col2, type="quantitative"),
-            tooltip=kolom_pilihan
-        ).interactive()
-        st.altair_chart(chart, use_container_width=True)
-
-    elif pd.api.types.is_numeric_dtype(data_penyaringan[col1]) and not pd.api.types.is_numeric_dtype(data_penyaringan[col2]):
-        chart = alt.Chart(data_penyaringan).mark_bar().encode(
-            x=alt.X(col2, type="nominal"),
-            y=alt.Y(col1, type="quantitative"),
-            tooltip=kolom_pilihan
-        )
-        st.altair_chart(chart, use_container_width=True)
-
-    elif not pd.api.types.is_numeric_dtype(data_penyaringan[col1]) and pd.api.types.is_numeric_dtype(data_penyaringan[col2]):
-        chart = alt.Chart(data_penyaringan).mark_bar().encode(
-            x=alt.X(col1, type="nominal"),
-            y=alt.Y(col2, type="quantitative"),
-            tooltip=kolom_pilihan
-        )
-        st.altair_chart(chart, use_container_width=True)
-
-    else:
-        chart = alt.Chart(data_penyaringan).mark_bar().encode(
-            x=alt.X(col1, type="nominal"),
-            y=alt.Y(col2, type="nominal"),
-            tooltip=kolom_pilihan
-        )
-        st.altair_chart(chart, use_container_width=True)
-        
+    st.info("📂 Silakan unggah file terlebih dahulu.")
+            
