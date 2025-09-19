@@ -122,23 +122,4 @@ if uploaded_files:
         )
 
     st.altair_chart(chart, use_container_width=True)
-
-    # --- Unduh Grafik PNG (Matplotlib) ---
-    fig, ax = plt.subplots()
-    if tipe_x == "Kategori" and tipe_y == "Kategori":
-        df_vis.groupby([kolom_x, kolom_y]).size().unstack(fill_value=0).plot(kind="bar", ax=ax)
-    elif tipe_x == "Kategori" and tipe_y == "Numerik":
-        df_vis.groupby(kolom_x)[kolom_y].mean().plot(kind="bar", ax=ax)
-    elif tipe_x == "Numerik" and tipe_y == "Numerik":
-        ax.scatter(df_vis[kolom_x], df_vis[kolom_y])
-    else:
-        df_vis.groupby(kolom_y)[kolom_x].mean().plot(kind="bar", ax=ax)
-
-    plt.xticks(rotation=45, ha="right")
-    plt.tight_layout()
-
-    buf = BytesIO()
-    plt.savefig(buf, format="png")
-    st.download_button("⬇️ Unduh Visualisasi (PNG)", data=buf.getvalue(),
-                       file_name="visualisasi.png", mime="image/png")
                 
