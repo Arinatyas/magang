@@ -2,7 +2,6 @@ import streamlit as st
 import pandas as pd
 import altair as alt
 from io import BytesIO
-from altair_saver import save
 
 st.set_page_config(layout="wide")
 st.title("📊 Aplikasi Gabung, Filter, dan Visualisasi Data Multi-Sheet")
@@ -26,7 +25,7 @@ def baca_file(file, header_row):
                     engine=engine
                 )
 
-                # ganti Unnamed dengan nama kolom sebelumnya (jika merge cell)
+                # ganti Unnamed dengan nama kolom sebelumnya (untuk merge cell)
                 df_sheet.columns = [
                     df_sheet.columns[i - 1]
                     if "Unnamed" in str(col) and i > 0
@@ -168,24 +167,21 @@ if uploaded_files:
 
             st.altair_chart(chart, use_container_width=True)
 
-            # === Download Chart sebagai PNG/JPG ===
-            def chart_to_image(chart, filetype="png"):
-                output = BytesIO()
-                save(chart, output, fmt=filetype)
-                return output.getvalue()
-
+            # === Download Chart sebagai SVG / HTML ===
+            svg = chart.to_svg()
             st.download_button(
-                "⬇️ Unduh Chart (PNG)",
-                data=chart_to_image(chart, "png"),
-                file_name="chart.png",
-                mime="image/png"
+                "⬇️ Unduh Chart (SVG)",
+                data=svg,
+                file_name="chart.svg",
+                mime="image/svg+xml"
             )
 
+            html = chart.to_html()
             st.download_button(
-                "⬇️ Unduh Chart (JPG)",
-                data=chart_to_image(chart, "jpg"),
-                file_name="chart.jpg",
-                mime="image/jpeg"
+                "⬇️ Unduh Chart (HTML Interaktif)",
+                data=html,
+                file_name="chart.html",
+                mime="text/html"
             )
 
         # === Unduh Data ===
