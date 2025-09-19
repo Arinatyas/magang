@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 import altair as alt
+import io
 
 st.title("📊 Aplikasi Gabung, Filter, dan Visualisasi Data Multi-Sheet")
 
@@ -27,11 +28,9 @@ if uploaded_files:
             df_raw = pd.read_csv(uploaded_file, header=None)
         elif filename.endswith(".xlsx"):
             df_raw = pd.read_excel(uploaded_file, sheet_name=None, header=None)
-            # Gabungkan semua sheet Excel
             df_raw = pd.concat(df_raw.values(), ignore_index=True)
         elif filename.endswith(".ods"):
             df_raw = pd.read_excel(uploaded_file, engine="odf", sheet_name=None, header=None)
-            # Gabungkan semua sheet ODS
             df_raw = pd.concat(df_raw.values(), ignore_index=True)
         else:
             continue
@@ -63,21 +62,49 @@ if uploaded_files:
     st.subheader("🔎 Data Gabungan (setelah diproses)")
     st.write(data.head())
 
-    # Filter kolom
-    selected_col = st.selectbox("Pilih kolom yang ingin difilter & ditampilkan", data.columns)
-    if selected_col:
-        selected_values = st.multiselect("Pilih nilai untuk kolom " + selected_col, data[selected_col].unique())
-        if selected_values:
-            filtered_data = data[data[selected_col].isin(selected_values)]
-        else:
-            filtered_data = data
-    else:
-        filtered_data = data
+    # === FILTER MULTI-KOLOM ===
+    st.subheader("🔎 Filter Data")
+    filter_cols = st.multiselect("Pilih kolom untuk difilter", data.columns)
+
+    filtered_data = data.copy()
+    for col in filter_cols:
+        values = st.multiselect(f"Pilih nilai untuk kolom {col}", data[col].unique())
+        if values:
+            filtered_data = filtered_data[filtered_data[col].isin(values)]
 
     st.subheader("📌 Hasil Penyaringan")
     st.write(filtered_data)
 
-    # Visualisasi
+    # === UNDUH HASIL ===
+    st.markdown("### ⬇️ Unduh Hasil Penyaringan")
+
+    # CSV
+    csv = filtered_data.to_csv(index=False).encode("utf-8")
+    st.download_button("Unduh CSV", csv, file_name="hasil.csv", mime="text/csv")
+
+    # Excel
+    excel_buffer = io.BytesIO()
+    with pd.ExcelWriter(excel_buffer, engine="openpyxl") as writer:
+        filtered_data.to_excel(writer, index=False, sheet_name="Hasil")
+    st.download_button(
+        "Unduh Excel (.xlsx)", 
+        excel_buffer.getvalue(), 
+        file_name="hasil.xlsx", 
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
+
+    # ODS
+    ods_buffer = io.BytesIO()
+    with pd.ExcelWriter(ods_buffer, engine="odf") as writer:
+        filtered_data.to_excel(writer, index=False, sheet_name="Hasil")
+    st.download_button(
+        "Unduh ODS", 
+        ods_buffer.getvalue(), 
+        file_name="hasil.ods", 
+        mime="application/vnd.oasis.opendocument.spreadsheet"
+    )
+
+    # === VISUALISASI ===
     st.subheader("📈 Visualisasi Data")
     x_col = st.selectbox("Pilih kolom sumbu X", data.columns)
     y_col = st.selectbox("Pilih kolom sumbu Y", data.columns)
@@ -89,23 +116,33 @@ if uploaded_files:
 
     # Konversi Y ke numerik jika bisa
     try:
-        data[y_col] = pd.to_numeric(data[y_col], errors="coerce")
+        filtered_data[y_col] = pd.to_numeric(filtered_data[y_col], errors="coerce")
     except:
         pass
 
-    if pd.api.types.is_numeric_dtype(data[y_col]):
+    if pd.api.types.is_numeric_dtype(filtered_data[y_col]):
         if chart_type == "Diagram Batang":
-            chart = alt.Chart(data).mark_bar().encode(x=x_col, y=y_col)
+            chart = alt.Chart(filtered_data).mark_bar().encode(x=x_col, y=y_col)
         elif chart_type == "Diagram Garis":
-            chart = alt.Chart(data).mark_line().encode(x=x_col, y=y_col)
+            chart = alt.Chart(filtered_data).mark_line().encode(x=x_col, y=y_col)
         else:
-            chart = alt.Chart(data).mark_point().encode(x=x_col, y=y_col)
+            chart = alt.Chart(filtered_data).mark_point().encode(x=x_col, y=y_col)
     else:
-        chart = alt.Chart(data).mark_bar().encode(
+        chart = alt.Chart(filtered_data).mark_bar().encode(
             x=x_col,
             y="count()",
             color=y_col
         )
 
     st.altair_chart(chart, use_container_width=True)
+
+    # === UNDUH GAMBAR ===
+    st.markdown("### ⬇️ Unduh Visualisasi")
+    chart_bytes = chart.save(fp=None, format="png")  # PNG
+    st.download_button(
+        "Unduh Gambar PNG",
+        chart_bytes,
+        file_name="visualisasi.png",
+        mime="image/png"
+    )
     
