@@ -135,14 +135,4 @@ if uploaded_files:
         )
 
     st.altair_chart(chart, use_container_width=True)
-
-    # === UNDUH GAMBAR ===
-    st.markdown("### ⬇️ Unduh Visualisasi")
-    chart_bytes = chart.save(fp=None, format="png")  # PNG
-    st.download_button(
-        "Unduh Gambar PNG",
-        chart_bytes,
-        file_name="visualisasi.png",
-        mime="image/png"
-    )
     
