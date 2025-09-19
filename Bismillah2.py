@@ -100,9 +100,16 @@ if data_frames:
     if filter_columns and not filtered_df.empty:
         st.subheader("📈 Visualisasi Data")
 
-        # Bersihkan nama kolom
-        all_cols = [str(c).strip() for c in filtered_df.columns.tolist()]
-        filtered_df.columns = all_cols  
+        # Bersihkan nama kolom dari Unnamed
+        clean_cols = []
+        for i, c in enumerate(filtered_df.columns):
+            if str(c).startswith("Unnamed"):
+                clean_cols.append(f"Kolom_{i+1}")
+            else:
+                clean_cols.append(str(c).strip())
+        filtered_df.columns = clean_cols
+
+        all_cols = filtered_df.columns.tolist()
 
         x_axis = st.selectbox("Pilih kolom sumbu X", all_cols, key="x_axis")
         y_axis = st.selectbox("Pilih kolom sumbu Y", [c for c in all_cols if c != x_axis], key="y_axis")
@@ -124,7 +131,7 @@ if data_frames:
         x_type = detect_type(x_axis)
         y_type = detect_type(y_axis)
 
-        # pastikan tooltip aman (semua string)
+        # Tooltip aman
         tooltip_cols = [alt.Tooltip(c, type=detect_type(c)) for c in all_cols]
 
         if chart_type == "Diagram Batang":
@@ -139,7 +146,7 @@ if data_frames:
                 y=alt.Y(y_axis, type=y_type),
                 tooltip=tooltip_cols
             )
-        else:  # Sebar
+        else:  # Diagram Sebar
             chart = alt.Chart(filtered_df).mark_circle(size=60).encode(
                 x=alt.X(x_axis, type=x_type),
                 y=alt.Y(y_axis, type=y_type),
