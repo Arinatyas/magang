@@ -1,198 +1,110 @@
 import streamlit as st
 import pandas as pd
+import os
 import altair as alt
-from io import BytesIO
-from odf.opendocument import OpenDocumentSpreadsheet
-from odf.table import Table, TableRow, TableCell
-from odf.text import P
 
-st.set_page_config(page_title="Data Gabungan & Visualisasi", layout="wide")
-
-st.title("📊 Aplikasi Data Gabungan & Visualisasi dengan Filter")
+st.title("📊 Aplikasi Penggabungan & Visualisasi Data")
 
 # ======================
-# Upload file
+# Upload File
 # ======================
 uploaded_files = st.file_uploader(
-    "Unggah file (Excel .xlsx, ODS .ods, CSV)", 
-    type=["xlsx", "ods", "csv"], 
+    "Upload file Excel/ODS (bisa lebih dari satu)", 
+    type=["xlsx", "xls", "ods"], 
     accept_multiple_files=True
 )
 
-all_data = []
-
+data_frames = []
 if uploaded_files:
+    header_row = st.number_input("Pilih baris header (mulai dari 0)", min_value=0, value=0)
+
     for file in uploaded_files:
-        if file.name.endswith(".xlsx"):
-            xls = pd.ExcelFile(file)
-            for sheet in xls.sheet_names:
-                df = pd.read_excel(xls, sheet_name=sheet)
-                df["Source_File"] = file.name
-                df["Source_Sheet"] = sheet
-                all_data.append(df)
+        try:
+            df = pd.read_excel(file, header=header_row, engine="openpyxl")
+        except:
+            df = pd.read_excel(file, header=header_row, engine="odf")
+        data_frames.append(df)
 
-        elif file.name.endswith(".ods"):
-            try:
-                import pyexcel_ods3
-                data_ods = pyexcel_ods3.get_data(file)
-                for sheet, values in data_ods.items():
-                    df = pd.DataFrame(values[1:], columns=values[0])
-                    df["Source_File"] = file.name
-                    df["Source_Sheet"] = sheet
-                    all_data.append(df)
-            except Exception as e:
-                st.error(f"Gagal membaca ODS {file.name}: {e}")
+    if data_frames:
+        data_gabungan = pd.concat(data_frames, ignore_index=True)
 
-        elif file.name.endswith(".csv"):
-            df = pd.read_csv(file)
-            df["Source_File"] = file.name
-            df["Source_Sheet"] = "CSV"
-            all_data.append(df)
-
-    # Gabungkan semua data
-    if all_data:
-        data_gabungan = pd.concat(all_data, ignore_index=True)
-
-        # Kolom kosong dinamai Unnamed_x
-        data_gabungan.columns = [
-            str(c) if c != "" else f"Unnamed_{i}"
-            for i, c in enumerate(data_gabungan.columns)
-        ]
-
-        # Isi NaN → 0 (numerik) atau "Tidak Ada" (lainnya)
-        for col in data_gabungan.columns:
-            if pd.api.types.is_numeric_dtype(data_gabungan[col]):
-                data_gabungan[col] = data_gabungan[col].fillna(0)
-            else:
-                data_gabungan[col] = data_gabungan[col].fillna("Tidak Ada")
-
-        st.subheader("📑 Data Gabungan")
-        st.dataframe(data_gabungan.head(50), use_container_width=True)
+        st.subheader("📄 Data Gabungan")
+        st.dataframe(data_gabungan)
 
         # ======================
-        # Filter Data
+        # Penyaringan
         # ======================
-        st.subheader("🔎 Filter Data")
+        st.subheader("🔍 Penyaringan Data")
+        kolom_filter = st.multiselect("Pilih kolom untuk filter", data_gabungan.columns)
 
-        filter_col = st.selectbox("Pilih kolom untuk filter", ["(Tidak ada)"] + list(data_gabungan.columns))
+        data_penyaringan = data_gabungan.copy()
+        for kol in kolom_filter:
+            unique_vals = data_gabungan[kol].dropna().unique().tolist()
+            pilihan = st.multiselect(f"Pilih nilai untuk {kol}", unique_vals)
+            if pilihan:
+                data_penyaringan = data_penyaringan[data_penyaringan[kol].isin(pilihan)]
 
-        if filter_col != "(Tidak ada)":
-            if pd.api.types.is_numeric_dtype(data_gabungan[filter_col]):
-                min_val, max_val = float(data_gabungan[filter_col].min()), float(data_gabungan[filter_col].max())
-                range_min, range_max = st.slider(
-                    f"Pilih rentang nilai untuk {filter_col}",
-                    min_val, max_val, (min_val, max_val)
+        st.write("### Data Setelah Penyaringan")
+        st.dataframe(data_penyaringan)
+
+        # ======================
+        # Unduh Data
+        # ======================
+        st.subheader("💾 Unduh Data")
+
+        out_excel = "data_gabungan.xlsx"
+        out_ods = "data_gabungan.ods"
+        data_penyaringan.to_excel(out_excel, index=False, engine="openpyxl")
+        data_penyaringan.to_excel(out_ods, index=False, engine="odf")
+
+        with open(out_excel, "rb") as f:
+            st.download_button("📥 Unduh Excel (.xlsx)", f, file_name=out_excel)
+
+        with open(out_ods, "rb") as f:
+            st.download_button("📥 Unduh ODS (.ods)", f, file_name=out_ods)
+
+        # ======================
+        # Visualisasi
+        # ======================
+        st.subheader("📈 Visualisasi Data")
+
+        if len(data_penyaringan.columns) >= 2:
+            x_axis = st.selectbox("Pilih Kolom X", data_penyaringan.columns)
+            y_axis = st.selectbox("Pilih Kolom Y", data_penyaringan.columns)
+            chart_type = st.selectbox("Pilih Jenis Grafik", ["Bar", "Line", "Scatter"])
+
+            # Ganti NaN dengan 0
+            data_penyaringan = data_penyaringan.fillna(0)
+
+            # Deteksi tipe data otomatis
+            def detect_type(series):
+                try:
+                    pd.to_numeric(series)
+                    return "quantitative"
+                except:
+                    return "ordinal"
+
+            x_type = detect_type(data_penyaringan[x_axis])
+            y_type = detect_type(data_penyaringan[y_axis])
+
+            if chart_type == "Bar":
+                chart = alt.Chart(data_penyaringan).mark_bar().encode(
+                    x=alt.X(x_axis, type=x_type),
+                    y=alt.Y(y_axis, type=y_type),
+                    tooltip=list(data_penyaringan.columns)
                 )
-                data_filtered = data_gabungan[
-                    (data_gabungan[filter_col] >= range_min) & (data_gabungan[filter_col] <= range_max)
-                ]
-            else:
-                unique_vals = data_gabungan[filter_col].unique().tolist()
-                selected_vals = st.multiselect(f"Pilih nilai untuk {filter_col}", unique_vals, default=unique_vals)
-                data_filtered = data_gabungan[data_gabungan[filter_col].isin(selected_vals)]
-        else:
-            data_filtered = data_gabungan
+            elif chart_type == "Line":
+                chart = alt.Chart(data_penyaringan).mark_line(point=True).encode(
+                    x=alt.X(x_axis, type=x_type),
+                    y=alt.Y(y_axis, type=y_type),
+                    tooltip=list(data_penyaringan.columns)
+                )
+            else:  # Scatter
+                chart = alt.Chart(data_penyaringan).mark_circle(size=60).encode(
+                    x=alt.X(x_axis, type=x_type),
+                    y=alt.Y(y_axis, type=y_type),
+                    tooltip=list(data_penyaringan.columns)
+                )
 
-        st.write("📌 Jumlah data setelah filter:", len(data_filtered))
-        st.dataframe(data_filtered.head(50), use_container_width=True)
-
-        # ======================
-        # Pilihan kolom X dan Y
-        # ======================
-        st.subheader("⚙️ Pilih Kolom untuk Visualisasi")
-
-        kolom_x = st.selectbox("Kolom X", data_filtered.columns)
-        kolom_y = st.selectbox("Kolom Y", data_filtered.columns)
-
-        # ======================
-        # Pilihan Jenis Grafik
-        # ======================
-        chart_type = st.radio(
-            "Pilih jenis grafik",
-            ["Bar", "Line", "Scatter", "Pie"]
-        )
-
-        st.subheader("📊 Visualisasi")
-
-        chart = None
-
-        if chart_type == "Bar":
-            chart = alt.Chart(data_filtered).mark_bar().encode(
-                x=kolom_x,
-                y=kolom_y,
-                tooltip=[kolom_x, kolom_y]
-            )
-        elif chart_type == "Line":
-            chart = alt.Chart(data_filtered).mark_line(point=True).encode(
-                x=kolom_x,
-                y=kolom_y,
-                tooltip=[kolom_x, kolom_y]
-            )
-        elif chart_type == "Scatter":
-            chart = alt.Chart(data_filtered).mark_circle(size=60).encode(
-                x=kolom_x,
-                y=kolom_y,
-                tooltip=[kolom_x, kolom_y]
-            )
-        elif chart_type == "Pie":
-            chart = alt.Chart(data_filtered).mark_arc().encode(
-                theta=kolom_y,
-                color=kolom_x,
-                tooltip=[kolom_x, kolom_y]
-            )
-
-        if chart:
             st.altair_chart(chart, use_container_width=True)
-
-        # ======================
-        # Unduh hasil gabungan
-        # ======================
-        st.subheader("📥 Unduh Data Gabungan")
-
-        # Simpan Excel
-        buffer_xlsx = BytesIO()
-        with pd.ExcelWriter(buffer_xlsx, engine="openpyxl") as writer:
-            data_filtered.to_excel(writer, index=False, sheet_name="Gabungan")
-        buffer_xlsx.seek(0)
-
-        st.download_button(
-            label="Unduh Excel (.xlsx)",
-            data=buffer_xlsx,
-            file_name="data_gabungan.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        )
-
-        # Simpan ODS
-        ods_doc = OpenDocumentSpreadsheet()
-        table = Table(name="Gabungan")
-        # Tambahkan header
-        header_row = TableRow()
-        for col in data_filtered.columns:
-            tc = TableCell()
-            tc.addElement(P(text=str(col)))
-            header_row.addElement(tc)
-        table.addElement(header_row)
-
-        # Tambahkan isi data
-        for _, row in data_filtered.iterrows():
-            tr = TableRow()
-            for val in row:
-                tc = TableCell()
-                tc.addElement(P(text=str(val)))
-                tr.addElement(tc)
-            table.addElement(tr)
-        ods_doc.spreadsheet.addElement(table)
-        buffer_ods = BytesIO()
-        ods_doc.save(buffer_ods)
-        buffer_ods.seek(0)
-
-        st.download_button(
-            label="Unduh ODS (.ods)",
-            data=buffer_ods,
-            file_name="data_gabungan.ods",
-            mime="application/vnd.oasis.opendocument.spreadsheet"
-        )
-
-else:
-    st.info("📂 Silakan upload minimal satu file untuk mulai.")
-                            
+            
