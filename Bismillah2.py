@@ -2,116 +2,134 @@ import streamlit as st
 import pandas as pd
 import altair as alt
 import io
+from io import BytesIO
 
-st.set_page_config(page_title="📊 Aplikasi Gabung, Filter, dan Visualisasi Data", layout="wide")
+st.title("📊 Aplikasi Penggabungan & Penyaringan Data")
 
-st.title("📊 Aplikasi Gabung, Filter, dan Visualisasi Data Multi-Sheet")
-
-# --- Upload File ---
+# Upload file
 uploaded_files = st.file_uploader(
-    "Unggah beberapa file (Excel/CSV/ODS) sekaligus",
+    "Upload file (bisa lebih dari satu, format: xlsx/csv/ods)",
     type=["xlsx", "csv", "ods"],
     accept_multiple_files=True
 )
 
-# Pilih baris header
-header_row = st.number_input("Pilih baris header (mulai dari 0, misalnya baris ke-6 berarti 5)", 
-                             min_value=0, value=0, step=1)
+# Pilih header
+header_input = st.number_input("Pilih baris header (mulai dari 0)", min_value=0, value=0, step=1)
 
-all_data = []
+data_gabungan = pd.DataFrame()
 
 if uploaded_files:
+    all_dfs = []
+
     for file in uploaded_files:
-        if file.name.endswith(".csv"):
-            df = pd.read_csv(file, header=header_row)
-        elif file.name.endswith(".xlsx"):
-            xls = pd.ExcelFile(file)
-            for sheet in xls.sheet_names:
-                df = pd.read_excel(file, sheet_name=sheet, header=header_row)
-                df["Sumber_Sheet"] = sheet
-                df["Sumber_File"] = file.name
-                all_data.append(df)
-        elif file.name.endswith(".ods"):
-            xls = pd.ExcelFile(file, engine="odf")
-            for sheet in xls.sheet_names:
-                df = pd.read_excel(file, sheet_name=sheet, header=header_row, engine="odf")
-                df["Sumber_Sheet"] = sheet
-                df["Sumber_File"] = file.name
-                all_data.append(df)
+        filename = file.name.lower()
 
-    if all_data:
-        data_gabungan = pd.concat(all_data, ignore_index=True)
+        try:
+            if filename.endswith(".csv"):
+                df = pd.read_csv(file, header=header_input)
+                all_dfs.append(df)
 
-        # Pastikan kolom unik
-        data_gabungan.columns = pd.io.parsers.ParserBase(
-            {"names": data_gabungan.columns}
-        )._maybe_dedup_names(data_gabungan.columns)
+            elif filename.endswith(".xlsx"):
+                xls = pd.ExcelFile(file)
+                for sheet in xls.sheet_names:
+                    df = pd.read_excel(file, sheet_name=sheet, header=header_input)
+                    df["__sheetname__"] = sheet
+                    df["__filename__"] = file.name
+                    all_dfs.append(df)
 
-        st.subheader("🔎 Data Gabungan (setelah diproses)")
-        st.dataframe(data_gabungan.head(50))
+            elif filename.endswith(".ods"):
+                xls = pd.ExcelFile(file, engine="odf")
+                for sheet in xls.sheet_names:
+                    df = pd.read_excel(file, sheet_name=sheet, header=header_input, engine="odf")
+                    df["__sheetname__"] = sheet
+                    df["__filename__"] = file.name
+                    all_dfs.append(df)
 
-        # --- FILTER DATA ---
-        st.subheader("📌 Hasil Penyaringan")
+        except Exception as e:
+            st.warning(f"Gagal membaca {file.name}: {e}")
 
-        kolom_pilihan = st.multiselect("Pilih kolom yang ingin difilter & ditampilkan", data_gabungan.columns)
+    if all_dfs:
+        data_gabungan = pd.concat(all_dfs, ignore_index=True)
 
-        if kolom_pilihan:
-            data_penyaringan = data_gabungan[kolom_pilihan].copy()
+        # Bersihkan nama kolom & atasi duplikat
+        data_gabungan = data_gabungan.rename(columns=lambda x: str(x).strip())
+        if data_gabungan.columns.duplicated().any():
+            cols = pd.Series(data_gabungan.columns)
+            for dup in cols[cols.duplicated()].unique():
+                mask = cols == dup
+                cols[mask] = [f"{dup}.{i}" if i > 0 else dup for i in range(mask.sum())]
+            data_gabungan.columns = cols
 
-            for col in kolom_pilihan:
-                opsi = st.multiselect(f"Pilih nilai untuk kolom {col}", sorted(data_gabungan[col].dropna().unique()))
-                if opsi:
-                    data_penyaringan = data_penyaringan[data_penyaringan[col].isin(opsi)]
+        st.subheader("📂 Data Gabungan")
+        st.dataframe(data_gabungan)
 
-            # Pastikan kolom unik
-            data_penyaringan.columns = pd.io.parsers.ParserBase(
-                {"names": data_penyaringan.columns}
-            )._maybe_dedup_names(data_penyaringan.columns)
+        # Tombol unduh CSV
+        csv_gabungan = data_gabungan.to_csv(index=False).encode("utf-8")
+        st.download_button("⬇️ Unduh Data Gabungan (CSV)", csv_gabungan, "data_gabungan.csv", "text/csv")
 
-            st.dataframe(data_penyaringan.head(50))
+        # Tombol unduh Excel
+        excel_buffer = BytesIO()
+        with pd.ExcelWriter(excel_buffer, engine="openpyxl") as writer:
+            data_gabungan.to_excel(writer, index=False, sheet_name="Gabungan")
+        st.download_button("⬇️ Unduh Data Gabungan (Excel)", excel_buffer.getvalue(),
+                           "data_gabungan.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
-            # --- DOWNLOAD DATA ---
-            with io.BytesIO() as buffer:
-                data_penyaringan.to_excel(buffer, index=False, engine="openpyxl")
-                st.download_button(
-                    label="💾 Unduh Hasil Penyaringan (Excel)",
-                    data=buffer.getvalue(),
-                    file_name="hasil_penyaringan.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                )
+        # Tombol unduh ODS
+        ods_buffer = BytesIO()
+        data_gabungan.to_excel(ods_buffer, engine="odf", index=False, sheet_name="Gabungan")
+        st.download_button("⬇️ Unduh Data Gabungan (ODS)", ods_buffer.getvalue(),
+                           "data_gabungan.ods", "application/vnd.oasis.opendocument.spreadsheet")
 
-            with io.BytesIO() as buffer:
-                data_penyaringan.to_csv(buffer, index=False)
-                st.download_button(
-                    label="💾 Unduh Hasil Penyaringan (CSV)",
-                    data=buffer.getvalue(),
-                    file_name="hasil_penyaringan.csv",
-                    mime="text/csv"
-                )
+        # Penyaringan
+        kolom_filter = st.multiselect("Pilih kolom untuk filter", data_gabungan.columns)
 
-            # --- VISUALISASI ---
-            st.subheader("📈 Visualisasi Data")
-            if len(kolom_pilihan) >= 2:
-                x_axis = st.selectbox("Pilih kolom sumbu X", kolom_pilihan)
-                y_axis = st.selectbox("Pilih kolom sumbu Y", kolom_pilihan)
+        if kolom_filter:
+            data_penyaringan = data_gabungan[kolom_filter].copy()
 
-                chart_type = st.radio("Pilih jenis grafik", ["Diagram Batang", "Diagram Garis", "Diagram Sebar"])
+            # Ganti nilai kosong
+            for col in data_penyaringan.columns:
+                if pd.api.types.is_numeric_dtype(data_penyaringan[col]):
+                    data_penyaringan[col] = data_penyaringan[col].fillna(0)
+                else:
+                    data_penyaringan[col] = data_penyaringan[col].fillna("Tidak Ada")
 
-                if x_axis and y_axis:
-                    if chart_type == "Diagram Batang":
-                        chart = alt.Chart(data_penyaringan).mark_bar().encode(x=x_axis, y=y_axis)
-                    elif chart_type == "Diagram Garis":
-                        chart = alt.Chart(data_penyaringan).mark_line().encode(x=x_axis, y=y_axis)
-                    else:
-                        chart = alt.Chart(data_penyaringan).mark_point().encode(x=x_axis, y=y_axis)
+            st.subheader("🔎 Data Hasil Penyaringan")
+            st.dataframe(data_penyaringan)
 
-                    st.altair_chart(chart, use_container_width=True)
-            else:
-                st.info("Pilih minimal 2 kolom untuk membuat visualisasi.")
-        else:
-            st.info("Silakan pilih kolom untuk melakukan penyaringan.")
-    else:
-        st.warning("Tidak ada data yang berhasil digabung.")
+            # Unduh CSV
+            csv_penyaringan = data_penyaringan.to_csv(index=False).encode("utf-8")
+            st.download_button("⬇️ Unduh Data Penyaringan (CSV)", csv_penyaringan,
+                               "data_penyaringan.csv", "text/csv")
+
+            # Unduh Excel
+            excel_buffer2 = BytesIO()
+            with pd.ExcelWriter(excel_buffer2, engine="openpyxl") as writer:
+                data_penyaringan.to_excel(writer, index=False, sheet_name="Penyaringan")
+            st.download_button("⬇️ Unduh Data Penyaringan (Excel)", excel_buffer2.getvalue(),
+                               "data_penyaringan.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+
+            # Unduh ODS
+            ods_buffer2 = BytesIO()
+            data_penyaringan.to_excel(ods_buffer2, engine="odf", index=False, sheet_name="Penyaringan")
+            st.download_button("⬇️ Unduh Data Penyaringan (ODS)", ods_buffer2.getvalue(),
+                               "data_penyaringan.ods", "application/vnd.oasis.opendocument.spreadsheet")
+
+            # Visualisasi
+            st.subheader("📊 Visualisasi Data")
+            kolom_visual = st.selectbox("Pilih kolom untuk visualisasi", data_penyaringan.columns)
+
+            if kolom_visual:
+                if pd.api.types.is_numeric_dtype(data_penyaringan[kolom_visual]):
+                    chart = alt.Chart(data_penyaringan).mark_bar().encode(
+                        x=alt.X(kolom_visual, bin=alt.Bin(maxbins=30)),
+                        y='count()'
+                    )
+                else:
+                    chart = alt.Chart(data_penyaringan).mark_bar().encode(
+                        x=kolom_visual,
+                        y='count()'
+                    )
+
 else:
-    st.info("Silakan unggah minimal 1 file untuk mulai.")
-    
+    st.info("Silakan upload file terlebih dahulu.")
+                                      
