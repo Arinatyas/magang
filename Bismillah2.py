@@ -6,9 +6,7 @@ from io import BytesIO
 st.set_page_config(layout="wide")
 st.title("📊 Aplikasi Gabung, Filter, dan Visualisasi Data Multi-Sheet")
 
-# ===========================
-# Fungsi Baca & Bersihkan File
-# ===========================
+# Fungsi baca file dengan pembersihan
 def baca_file(file):
     ext = file.name.split(".")[-1].lower()
     all_dfs = []
@@ -17,58 +15,71 @@ def baca_file(file):
         xls = pd.ExcelFile(file, engine="openpyxl" if ext=="xlsx" else "odf")
         for sheet in xls.sheet_names:
             try:
-                # Baca sheet tanpa header
-                df_raw = pd.read_excel(
-                    file, sheet_name=sheet, header=None,
+                # baca beberapa baris awal untuk cek header
+                df_preview = pd.read_excel(
+                    file, sheet_name=sheet, nrows=3, header=None,
+                    engine="openpyxl" if ext=="xlsx" else "odf"
+                )
+                filled_counts = df_preview.notna().sum(axis=1)
+                max_filled_idx = filled_counts.idxmax()
+
+                # baca full sheet
+                df_sheet = pd.read_excel(
+                    file, sheet_name=sheet, header=max_filled_idx,
                     engine="openpyxl" if ext=="xlsx" else "odf"
                 )
 
-                # Cari baris dengan isi terbanyak → jadi header
-                filled_counts = df_raw.notna().sum(axis=1)
-                header_row = filled_counts.idxmax()
+                # --- Bersihkan baris kosong / tidak lengkap ---
+                df_sheet = df_sheet.dropna(how="all")       # hapus baris kosong total
+                df_sheet = df_sheet.dropna(thresh=2)        # hapus baris yg isi < 2 kolom
 
-                # Ambil baris itu sebagai header
-                new_header = df_raw.iloc[header_row].fillna(method="ffill").fillna(method="bfill").tolist()
-
-                # Data mulai setelah header
-                df = df_raw.iloc[header_row+1:].copy()
-                df.columns = [str(col) if str(col) != "nan" else f"Kolom_{i+1}" 
-                              for i, col in enumerate(new_header)]
-
-                # Bersihkan NaN → 0 utk numerik, "data kosong" utk kategorik
-                for col in df.columns:
-                    if pd.api.types.is_numeric_dtype(df[col]):
-                        df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0)
+                # --- Isi nilai kosong ---
+                df_sheet = df_sheet.replace(r'^\s*$', pd.NA, regex=True)
+                for col in df_sheet.columns:
+                    if pd.api.types.is_numeric_dtype(df_sheet[col]):
+                        df_sheet[col] = pd.to_numeric(df_sheet[col], errors="coerce").fillna(0)
                     else:
-                        df[col] = df[col].fillna("data kosong")
+                        df_sheet[col] = (
+                            df_sheet[col].astype(str)
+                            .replace("nan", "data kosong")
+                            .replace("<NA>", "data kosong")
+                            .fillna("data kosong")
+                        )
 
-                df["Sumber_File"] = file.name
-                df["Sumber_Sheet"] = sheet
-                all_dfs.append(df)
+                # Tambahkan sumber file & sheet
+                df_sheet["Sumber_File"] = file.name
+                df_sheet["Sumber_Sheet"] = sheet
+                all_dfs.append(df_sheet)
 
             except Exception as e:
                 st.warning(f"Gagal membaca sheet {sheet} dari {file.name}: {e}")
 
     elif ext == "csv":
-        df = pd.read_csv(file)
-        for col in df.columns:
-            if pd.api.types.is_numeric_dtype(df[col]):
-                df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0)
-            else:
-                df[col] = df[col].fillna("data kosong")
-        df["Sumber_File"] = file.name
-        df["Sumber_Sheet"] = "CSV"
-        all_dfs.append(df)
+        df_csv = pd.read_csv(file)
 
+        # isi kosong
+        df_csv = df_csv.replace(r'^\s*$', pd.NA, regex=True)
+        for col in df_csv.columns:
+            if pd.api.types.is_numeric_dtype(df_csv[col]):
+                df_csv[col] = pd.to_numeric(df_csv[col], errors="coerce").fillna(0)
+            else:
+                df_csv[col] = (
+                    df_csv[col].astype(str)
+                    .replace("nan", "data kosong")
+                    .replace("<NA>", "data kosong")
+                    .fillna("data kosong")
+                )
+
+        df_csv["Sumber_File"] = file.name
+        df_csv["Sumber_Sheet"] = "CSV"
+        all_dfs.append(df_csv)
     else:
         st.warning(f"Format {file.name} tidak didukung")
 
     return all_dfs
 
 
-# ===========================
-# Upload File
-# ===========================
+# Upload beberapa file
 uploaded_files = st.file_uploader(
     "Unggah beberapa file (Excel/CSV/ODS) sekaligus",
     type=["xlsx", "csv", "ods"],
@@ -85,18 +96,15 @@ if uploaded_files:
         st.subheader("🔎 Data Gabungan")
         st.dataframe(all_data.head())
 
-        # ===========================
-        # Filter Data
-        # ===========================
-        filter_columns = st.multiselect("Pilih kolom yang ingin difilter & ditampilkan", all_data.columns.tolist())
-
-        # 🔹 Filter tambahan: pilih sheet
-        sheets_filter = st.multiselect("Filter berdasarkan Sheet", all_data["Sumber_Sheet"].unique())
+        # Filter sheet
+        sheet_options = all_data["Sumber_Sheet"].unique().tolist()
+        pilih_sheet = st.multiselect("Filter berdasarkan Sheet", sheet_options)
         filtered_df = all_data.copy()
+        if pilih_sheet:
+            filtered_df = filtered_df[filtered_df["Sumber_Sheet"].isin(pilih_sheet)]
 
-        if sheets_filter:
-            filtered_df = filtered_df[filtered_df["Sumber_Sheet"].isin(sheets_filter)]
-
+        # Filter kolom dinamis
+        filter_columns = st.multiselect("Pilih kolom yang ingin difilter & ditampilkan", filtered_df.columns.tolist())
         if filter_columns:
             for col in filter_columns:
                 unique_vals = filtered_df[col].dropna().unique().tolist()
@@ -108,16 +116,15 @@ if uploaded_files:
         st.subheader("📌 Hasil Penyaringan")
         st.dataframe(filtered_df)
 
-        # ===========================
+        # =====================
         # Visualisasi
-        # ===========================
+        # =====================
         if filter_columns and not filtered_df.empty:
             st.subheader("📈 Visualisasi Data")
             all_cols = filtered_df.columns.tolist()
 
             x_axis = st.selectbox("Pilih kolom sumbu X", all_cols)
             y_axis = st.selectbox("Pilih kolom sumbu Y", all_cols)
-
             chart_type = st.radio("Pilih jenis grafik", ["Diagram Batang", "Diagram Garis", "Diagram Sebar"])
 
             def tipe_kolom(col):
@@ -128,7 +135,6 @@ if uploaded_files:
                 else:
                     return "nominal"
 
-            chart = None
             x_type = tipe_kolom(x_axis)
             y_type = tipe_kolom(y_axis)
 
@@ -153,36 +159,41 @@ if uploaded_files:
 
             st.altair_chart(chart, use_container_width=True)
 
-            # 🔹 Unduh grafik sebagai PNG
+            # Unduh chart
             try:
-                from altair_saver import save
-                save(chart, "chart.png", fmt="png")
-                with open("chart.png", "rb") as f:
-                    st.download_button("📥 Unduh Grafik PNG", f, file_name="visualisasi.png", mime="image/png")
-            except Exception:
-                st.info("Untuk unduh grafik sebagai PNG, install package `altair_saver` (pip install altair_saver).")
+                png = chart.properties(width=600, height=400).to_image(format="png")
+                st.download_button("📥 Unduh Grafik PNG", data=png, file_name="visualisasi.png", mime="image/png")
 
-        # ===========================
-        # Unduh Data Hasil Filter
-        # ===========================
+                jpg = chart.properties(width=600, height=400).to_image(format="jpg")
+                st.download_button("📥 Unduh Grafik JPG", data=jpg, file_name="visualisasi.jpg", mime="image/jpg")
+            except Exception as e:
+                st.warning("⚠️ Export PNG/JPG membutuhkan 'altair_saver' dan backend seperti selenium/cairosvg.")
+
+        # =====================
+        # Unduh hasil data
+        # =====================
         st.subheader("💾 Unduh Hasil")
-
         if not filtered_df.empty:
-            # CSV
             csv = filtered_df.to_csv(index=False).encode("utf-8")
             st.download_button("Unduh sebagai CSV", csv, "hasil_filter.csv", "text/csv")
 
-            # Excel
             excel_buffer = BytesIO()
             with pd.ExcelWriter(excel_buffer, engine="openpyxl") as writer:
                 filtered_df.to_excel(writer, index=False, sheet_name="Hasil")
-            st.download_button("Unduh sebagai Excel (.xlsx)", excel_buffer.getvalue(),
-                               "hasil_filter.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+            st.download_button(
+                "Unduh sebagai Excel (.xlsx)",
+                excel_buffer.getvalue(),
+                "hasil_filter.xlsx",
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            )
 
-            # ODS
             ods_buffer = BytesIO()
             with pd.ExcelWriter(ods_buffer, engine="odf") as writer:
                 filtered_df.to_excel(writer, index=False, sheet_name="Hasil")
-            st.download_button("Unduh sebagai ODS (.ods)", ods_buffer.getvalue(),
-                               "hasil_filter.ods", "application/vnd.oasis.opendocument.spreadsheet")
-
+            st.download_button(
+                "Unduh sebagai ODS (.ods)",
+                ods_buffer.getvalue(),
+                "hasil_filter.ods",
+                "application/vnd.oasis.opendocument.spreadsheet"
+            )
+            
