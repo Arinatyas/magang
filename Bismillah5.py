@@ -82,20 +82,27 @@ if not df.empty:
         df = df.rename(columns=rename_map)
 
     # =====================
-    # Filter Data
-    # =====================
-    st.subheader("🔍 Penyaringan Data")
-    filter_columns = st.multiselect("Pilih kolom untuk filter", df.columns.tolist())
+# Filter Data
+# =====================
+st.subheader("🔍 Penyaringan Data")
+filter_columns = st.multiselect("Pilih kolom untuk filter", df.columns.tolist())
 
-    filtered_df = df.copy()
-    for col in filter_columns:
-        unique_vals = filtered_df[col].dropna().unique().tolist()
-        selected_vals = st.multiselect(f"Pilih nilai untuk {col}", unique_vals)
-        if selected_vals:
-            filtered_df = filtered_df[filtered_df[col].isin(selected_vals)]
+filtered_df = df.copy()
+for col in filter_columns:
+    unique_vals = filtered_df[col].dropna().unique().tolist()
+    selected_vals = st.multiselect(f"Pilih nilai untuk {col}", unique_vals)
+    if selected_vals:
+        filtered_df = filtered_df[filtered_df[col].isin(selected_vals)]
 
-    st.write("Data Setelah Penyaringan")
-    st.dataframe(filtered_df)
+st.subheader("📄 Data Setelah Penyaringan")
+
+if filter_columns:  # hanya tampilkan kalau ada filter
+    if not filtered_df.empty:
+        st.dataframe(filtered_df)
+    else:
+        st.warning("⚠️ Tidak ada data yang sesuai dengan filter.")
+else:
+    st.info("Belum ada filter diterapkan. Silakan pilih kolom dan nilai filter.")
 
     # =====================
     # Visualisasi Data
