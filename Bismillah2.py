@@ -100,44 +100,50 @@ if data_frames:
     if filter_columns and not filtered_df.empty:
         st.subheader("📈 Visualisasi Data")
 
-        all_cols = [c.strip() for c in filtered_df.columns.tolist()]
-        filtered_df.columns = all_cols
+        # Bersihkan nama kolom
+        all_cols = [str(c).strip() for c in filtered_df.columns.tolist()]
+        filtered_df.columns = all_cols  
 
-        x_axis = st.selectbox("Pilih kolom sumbu X", all_cols)
-        y_axis = st.selectbox("Pilih kolom sumbu Y", all_cols)
+        x_axis = st.selectbox("Pilih kolom sumbu X", all_cols, key="x_axis")
+        y_axis = st.selectbox("Pilih kolom sumbu Y", [c for c in all_cols if c != x_axis], key="y_axis")
 
         chart_type = st.radio("Pilih jenis grafik", ["Diagram Batang", "Diagram Garis", "Diagram Sebar"])
 
         # Fungsi deteksi tipe kolom
         def detect_type(col):
-            if pd.api.types.is_numeric_dtype(filtered_df[col]):
-                return "quantitative"
-            elif pd.api.types.is_datetime64_any_dtype(filtered_df[col]):
-                return "temporal"
-            else:
+            try:
+                if pd.api.types.is_numeric_dtype(filtered_df[col]):
+                    return "quantitative"
+                elif pd.api.types.is_datetime64_any_dtype(filtered_df[col]):
+                    return "temporal"
+                else:
+                    return "nominal"
+            except Exception:
                 return "nominal"
 
         x_type = detect_type(x_axis)
         y_type = detect_type(y_axis)
 
+        # pastikan tooltip aman (semua string)
+        tooltip_cols = [alt.Tooltip(c, type=detect_type(c)) for c in all_cols]
+
         if chart_type == "Diagram Batang":
             chart = alt.Chart(filtered_df).mark_bar().encode(
                 x=alt.X(x_axis, type=x_type),
                 y=alt.Y(y_axis, type=y_type),
-                tooltip=all_cols
+                tooltip=tooltip_cols
             )
         elif chart_type == "Diagram Garis":
             chart = alt.Chart(filtered_df).mark_line(point=True).encode(
                 x=alt.X(x_axis, type=x_type),
                 y=alt.Y(y_axis, type=y_type),
-                tooltip=all_cols
+                tooltip=tooltip_cols
             )
         else:  # Sebar
             chart = alt.Chart(filtered_df).mark_circle(size=60).encode(
                 x=alt.X(x_axis, type=x_type),
                 y=alt.Y(y_axis, type=y_type),
-                tooltip=all_cols
+                tooltip=tooltip_cols
             )
 
         st.altair_chart(chart, use_container_width=True)
-            
