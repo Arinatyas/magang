@@ -6,48 +6,71 @@ from io import BytesIO
 st.set_page_config(layout="wide")
 st.title("📊 Aplikasi Gabung, Filter, dan Visualisasi Data Multi-Sheet")
 
-# Fungsi baca file dengan pilihan header baris
-def baca_file(file, header_row):
+# Fungsi: bersihkan nama kolom supaya tidak ada "Unnamed"
+def bersihkan_header(columns):
+    new_cols = []
+    for col in columns:
+        if isinstance(col, tuple):  # multiindex header
+            col = [c for c in col if str(c) != "nan"]
+            name = " - ".join(map(str, col)) if col else "data kosong"
+        else:
+            if str(col).startswith("Unnamed"):
+                name = "data kosong"
+            else:
+                name = str(col)
+        new_cols.append(name.strip())
+    return new_cols
+
+# Fungsi baca file
+def baca_file(file):
     ext = file.name.split(".")[-1].lower()
     all_dfs = []
 
-    try:
-        if ext in ["xlsx", "ods"]:
-            xls = pd.ExcelFile(file, engine="openpyxl" if ext=="xlsx" else "odf")
-            for sheet in xls.sheet_names:
-                try:
-                    df_sheet = pd.read_excel(
-                        file,
-                        sheet_name=sheet,
-                        header=header_row,
-                        engine="openpyxl" if ext=="xlsx" else "odf"
-                    )
+    if ext in ["xlsx", "ods"]:
+        xls = pd.ExcelFile(file, engine="openpyxl" if ext=="xlsx" else "odf")
+        for sheet in xls.sheet_names:
+            try:
+                # baca semua sheet tanpa header dulu
+                df_preview = pd.read_excel(file, sheet_name=sheet, header=None,
+                                           engine="openpyxl" if ext=="xlsx" else "odf")
+                # cari baris dengan isi terbanyak → jadi kandidat header
+                filled_counts = df_preview.notna().sum(axis=1)
+                header_row = filled_counts.idxmax()
 
-                    # Buang baris kosong
-                    df_sheet = df_sheet.dropna(how="all")
+                # baca ulang dengan header di baris terbaik
+                df_sheet = pd.read_excel(
+                    file, sheet_name=sheet, header=header_row,
+                    engine="openpyxl" if ext=="xlsx" else "odf"
+                )
 
-                    # Isi NaN: numerik → 0, kategorik → "data kosong"
-                    for col in df_sheet.columns:
-                        if pd.api.types.is_numeric_dtype(df_sheet[col]):
-                            df_sheet[col] = df_sheet[col].fillna(0)
-                        else:
-                            df_sheet[col] = df_sheet[col].fillna("data kosong")
+                # bersihkan nama kolom
+                df_sheet.columns = bersihkan_header(df_sheet.columns)
 
-                    df_sheet["Sumber_File"] = file.name
-                    df_sheet["Sumber_Sheet"] = sheet
-                    all_dfs.append(df_sheet)
+                # drop baris kosong
+                df_sheet = df_sheet.dropna(how="all")
 
-                except Exception as e:
-                    st.warning(f"Gagal membaca sheet {sheet} dari {file.name}: {e}")
-        elif ext == "csv":
-            df_csv = pd.read_csv(file, header=header_row)
-            df_csv["Sumber_File"] = file.name
-            df_csv["Sumber_Sheet"] = "CSV"
-            all_dfs.append(df_csv)
-        else:
-            st.warning(f"Format {file.name} tidak didukung")
-    except Exception as e:
-        st.error(f"Gagal membaca file {file.name}: {e}")
+                # isi NaN
+                for col in df_sheet.columns:
+                    if pd.api.types.is_numeric_dtype(df_sheet[col]):
+                        df_sheet[col] = df_sheet[col].fillna(0)
+                    else:
+                        df_sheet[col] = df_sheet[col].fillna("data kosong")
+
+                # simpan sumber
+                df_sheet["Sumber_File"] = file.name
+                df_sheet["Sumber_Sheet"] = sheet
+
+                all_dfs.append(df_sheet)
+            except Exception as e:
+                st.warning(f"Gagal membaca sheet {sheet} dari {file.name}: {e}")
+    elif ext == "csv":
+        df_csv = pd.read_csv(file)
+        df_csv.columns = bersihkan_header(df_csv.columns)
+        df_csv["Sumber_File"] = file.name
+        df_csv["Sumber_Sheet"] = "CSV"
+        all_dfs.append(df_csv)
+    else:
+        st.warning(f"Format {file.name} tidak didukung")
 
     return all_dfs
 
@@ -59,23 +82,17 @@ uploaded_files = st.file_uploader(
     accept_multiple_files=True
 )
 
-# Pilih baris header manual
-header_row = st.number_input(
-    "Pilih baris header (mulai dari 0, misalnya baris ke-6 berarti 5)",
-    min_value=0, value=0, step=1
-)
-
 if uploaded_files:
     semua_data = []
     for file in uploaded_files:
-        semua_data.extend(baca_file(file, header_row))
+        semua_data.extend(baca_file(file))
 
     if semua_data:
         all_data = pd.concat(semua_data, ignore_index=True)
         st.subheader("🔎 Data Gabungan")
         st.dataframe(all_data.head())
 
-        # Filter dinamis
+        # Filter
         filter_columns = st.multiselect("Pilih kolom yang ingin difilter & ditampilkan", all_data.columns.tolist())
         filtered_df = all_data.copy()
 
@@ -145,5 +162,4 @@ if uploaded_files:
                 filtered_df.to_excel(writer, index=False, sheet_name="Hasil")
             st.download_button("Unduh sebagai Excel (.xlsx)", excel_buffer.getvalue(),
                                "hasil_filter.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-
-
+            
