@@ -119,16 +119,23 @@ if uploaded_files:
             kolom_visual = st.selectbox("Pilih kolom untuk visualisasi", data_penyaringan.columns)
 
             if kolom_visual:
-                if pd.api.types.is_numeric_dtype(data_penyaringan[kolom_visual]):
-                    chart = alt.Chart(data_penyaringan).mark_bar().encode(
+                df_vis = data_penyaringan.copy()
+
+                # Pastikan tidak ada nilai kosong
+                if pd.api.types.is_numeric_dtype(df_vis[kolom_visual]):
+                    df_vis[kolom_visual] = df_vis[kolom_visual].fillna(0)
+                    chart = alt.Chart(df_vis).mark_bar().encode(
                         x=alt.X(kolom_visual, bin=alt.Bin(maxbins=30)),
                         y='count()'
                     )
                 else:
-                    chart = alt.Chart(data_penyaringan).mark_bar().encode(
+                    df_vis[kolom_visual] = df_vis[kolom_visual].fillna("Tidak Ada")
+                    chart = alt.Chart(df_vis).mark_bar().encode(
                         x=kolom_visual,
                         y='count()'
                     )
+
+                st.altair_chart(chart, use_container_width=True)
 
 else:
     st.info("Silakan upload file terlebih dahulu.")
