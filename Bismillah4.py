@@ -2,6 +2,10 @@ import streamlit as st
 import pandas as pd
 import os
 import altair as alt
+from io import BytesIO
+from odf.opendocument import OpenDocumentSpreadsheet
+from odf.table import Table, TableRow, TableCell
+from odf.text import P
 
 st.set_page_config(page_title="📊 Gabung Data Excel/ODS + Visualisasi", layout="wide")
 
@@ -54,9 +58,40 @@ if not df.empty:
     st.subheader("📄 Data Gabungan")
     st.dataframe(df)
 
-    # Unduh Data Gabungan
+    # ========= UNDUH DATA GABUNGAN =========
     csv = df.to_csv(index=False).encode("utf-8")
     st.download_button("💾 Unduh Data Gabungan (CSV)", csv, "gabungan.csv", "text/csv")
+
+    # Unduh Excel
+    output = BytesIO()
+    with pd.ExcelWriter(output, engine="openpyxl") as writer:
+        df.to_excel(writer, index=False, sheet_name="Gabungan")
+    st.download_button("💾 Unduh Data Gabungan (Excel)", output.getvalue(),
+                       "gabungan.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+
+    # Unduh ODS
+    ods_doc = OpenDocumentSpreadsheet()
+    table = Table(name="Gabungan")
+    # header
+    header_row = TableRow()
+    for col in df.columns:
+        cell = TableCell()
+        cell.addElement(P(text=str(col)))
+        header_row.addElement(cell)
+    table.addElement(header_row)
+    # isi
+    for _, row in df.iterrows():
+        tr = TableRow()
+        for val in row:
+            cell = TableCell()
+            cell.addElement(P(text=str(val)))
+            tr.addElement(cell)
+        table.addElement(tr)
+    ods_doc.spreadsheet.addElement(table)
+    ods_output = BytesIO()
+    ods_doc.save(ods_output)
+    st.download_button("💾 Unduh Data Gabungan (ODS)", ods_output.getvalue(),
+                       "gabungan.ods", "application/vnd.oasis.opendocument.spreadsheet")
 
     # =====================
     # Rename Unnamed Columns (SEBELUM FILTER)
@@ -86,10 +121,42 @@ if not df.empty:
     st.write("Data Setelah Penyaringan")
     st.dataframe(filtered_df)
 
-    # Unduh Data Setelah Filter
+    # ========= UNDUH HASIL FILTER =========
     if not filtered_df.empty:
+        # CSV
         csv_filter = filtered_df.to_csv(index=False).encode("utf-8")
         st.download_button("💾 Unduh Data Setelah Penyaringan (CSV)", csv_filter, "filter.csv", "text/csv")
+
+        # Excel
+        output_filter = BytesIO()
+        with pd.ExcelWriter(output_filter, engine="openpyxl") as writer:
+            filtered_df.to_excel(writer, index=False, sheet_name="Filter")
+        st.download_button("💾 Unduh Data Setelah Penyaringan (Excel)", output_filter.getvalue(),
+                           "filter.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+
+        # ODS
+        ods_doc_filter = OpenDocumentSpreadsheet()
+        table_f = Table(name="Filter")
+        # header
+        header_row_f = TableRow()
+        for col in filtered_df.columns:
+            cell = TableCell()
+            cell.addElement(P(text=str(col)))
+            header_row_f.addElement(cell)
+        table_f.addElement(header_row_f)
+        # isi
+        for _, row in filtered_df.iterrows():
+            tr = TableRow()
+            for val in row:
+                cell = TableCell()
+                cell.addElement(P(text=str(val)))
+                tr.addElement(cell)
+            table_f.addElement(tr)
+        ods_doc_filter.spreadsheet.addElement(table_f)
+        ods_output_f = BytesIO()
+        ods_doc_filter.save(ods_output_f)
+        st.download_button("💾 Unduh Data Setelah Penyaringan (ODS)", ods_output_f.getvalue(),
+                           "filter.ods", "application/vnd.oasis.opendocument.spreadsheet")
 
     # =====================
     # Visualisasi Data
@@ -143,3 +210,4 @@ if not df.empty:
 
 else:
     st.info("Silakan upload file atau pilih folder terlebih dahulu.")
+    
