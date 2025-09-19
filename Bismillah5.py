@@ -156,6 +156,4 @@ else:
         else:
             st.info("Pilih kolom X dan Y terlebih dahulu untuk menampilkan grafik.")
 
-else:
-    st.info("Silakan upload file atau pilih folder terlebih dahulu.")
-              
+
