@@ -92,61 +92,85 @@ if data_frames:
     with open(out_ods, "rb") as f:
         st.download_button("📥 Unduh ODS (.ods)", f, file_name=out_ods)
 
-    # ======================
+       # ======================
     # Visualisasi Grafik
     # =====================
     if filter_columns and not filtered_df.empty:
         st.subheader("📈 Visualisasi Data")
 
         all_cols = filtered_df.columns.tolist()
-        x_axis = st.selectbox("Pilih kolom sumbu X", all_cols, key="x_axis")
-        y_axis = st.selectbox("Pilih kolom sumbu Y", [c for c in all_cols if c != x_axis], key="y_axis")
+        x_col = st.selectbox("Pilih kolom sumbu X", all_cols, key="x_col")
+        y_col = st.selectbox("Pilih kolom sumbu Y", [c for c in all_cols if c != x_col], key="y_col")
 
         chart_type = st.radio("Pilih jenis grafik", ["Diagram Batang", "Diagram Garis", "Diagram Sebar"])
 
-        # 🔹 Pembersihan aman sebelum grafik
-        df_viz = filtered_df.copy()
-        df_viz = df_viz.dropna(subset=[x_axis, y_axis])  # hilangkan baris kosong di X/Y
-        df_viz[x_axis] = df_viz[x_axis].astype(str)  # ubah X ke string agar aman untuk label
-        df_viz[y_axis] = pd.to_numeric(df_viz[y_axis], errors="coerce")  # coba ubah Y jadi angka
-        df_viz = df_viz.dropna(subset=[y_axis])  # buang jika Y bukan angka
+        df_filtered = filtered_df.copy()
+        df_filtered = df_filtered.dropna(subset=[x_col, y_col])
 
-        if df_viz.empty:
-            st.warning("⚠️ Tidak ada data valid untuk divisualisasikan. Coba pilih kolom lain.")
-        else:
-            # Fungsi deteksi tipe kolom
-            def detect_type(col):
+        # ====== FUNGSI PENENTUAN TIPE DOMINAN ======
+        def detect_dominant_type(series):
+            """Menentukan tipe dominan dalam kolom campuran teks/angka."""
+            numeric_count = 0
+            text_count = 0
+            for val in series.dropna():
                 try:
-                    if pd.api.types.is_numeric_dtype(df_viz[col]):
-                        return "quantitative"
-                    elif pd.api.types.is_datetime64_any_dtype(df_viz[col]):
-                        return "temporal"
-                    else:
-                        return "nominal"
-                except Exception:
-                    return "nominal"
-
-            x_type = detect_type(x_axis)
-            y_type = detect_type(y_axis)
-            tooltip_cols = [alt.Tooltip(c, type=detect_type(c)) for c in df_viz.columns]
-
-            if chart_type == "Diagram Batang":
-                chart = alt.Chart(df_viz).mark_bar().encode(
-                    x=alt.X(x_axis, type=x_type),
-                    y=alt.Y(y_axis, type=y_type),
-                    tooltip=tooltip_cols
-                )
-            elif chart_type == "Diagram Garis":
-                chart = alt.Chart(df_viz).mark_line(point=True).encode(
-                    x=alt.X(x_axis, type=x_type),
-                    y=alt.Y(y_axis, type=y_type),
-                    tooltip=tooltip_cols
-                )
+                    float(val)
+                    numeric_count += 1
+                except:
+                    text_count += 1
+            if numeric_count >= text_count:
+                return "quantitative"
             else:
-                chart = alt.Chart(df_viz).mark_circle(size=60).encode(
-                    x=alt.X(x_axis, type=x_type),
-                    y=alt.Y(y_axis, type=y_type),
-                    tooltip=tooltip_cols
-                )
+                return "nominal"
 
-            st.altair_chart(chart, use_container_width=True)
+        # ====== BERSIHKAN DATA BERDASARKAN TIPE DOMINAN ======
+        def clean_column(series, dominant_type):
+            """Membersihkan kolom agar hanya sesuai tipe dominan."""
+            if dominant_type == "quantitative":
+                # ubah ke numerik, hapus non-numerik
+                return pd.to_numeric(series, errors="coerce")
+            else:
+                # ubah ke string, hapus NaN
+                return series.astype(str)
+
+        # Deteksi tipe dominan untuk X dan Y
+        x_type = detect_dominant_type(df_filtered[x_col])
+        y_type = detect_dominant_type(df_filtered[y_col])
+
+        df_filtered[x_col] = clean_column(df_filtered[x_col], x_type)
+        df_filtered[y_col] = clean_column(df_filtered[y_col], y_type)
+
+        # Drop baris yang jadi kosong setelah dibersihkan
+        df_filtered = df_filtered.dropna(subset=[x_col, y_col])
+
+        if df_filtered.empty:
+            st.warning("⚠️ Tidak ada data valid untuk divisualisasikan setelah pembersihan.")
+        else:
+            try:
+                # Tooltip aman
+                tooltip_cols = [alt.Tooltip(c, type="nominal") for c in df_filtered.columns]
+
+                # Buat grafik sesuai pilihan
+                if chart_type == "Diagram Batang":
+                    chart = alt.Chart(df_filtered).mark_bar().encode(
+                        x=alt.X(x_col, type=x_type),
+                        y=alt.Y(y_col, type=y_type),
+                        tooltip=tooltip_cols
+                    )
+                elif chart_type == "Diagram Garis":
+                    chart = alt.Chart(df_filtered).mark_line(point=True).encode(
+                        x=alt.X(x_col, type=x_type),
+                        y=alt.Y(y_col, type=y_type),
+                        tooltip=tooltip_cols
+                    )
+                else:
+                    chart = alt.Chart(df_filtered).mark_circle(size=60).encode(
+                        x=alt.X(x_col, type=x_type),
+                        y=alt.Y(y_col, type=y_type),
+                        tooltip=tooltip_cols
+                    )
+
+                st.altair_chart(chart, use_container_width=True)
+
+            except Exception as e:
+                st.warning(f"⚠️ Terjadi error saat membuat grafik: {e}")
