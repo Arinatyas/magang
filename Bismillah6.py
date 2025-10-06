@@ -92,7 +92,7 @@ if data_frames:
     with open(out_ods, "rb") as f:
         st.download_button("📥 Unduh ODS (.ods)", f, file_name=out_ods)
 
-        # ======================
+    # ======================
     # Visualisasi Grafik
     # =====================
     if filter_columns and not filtered_df.empty:
@@ -104,47 +104,49 @@ if data_frames:
 
         chart_type = st.radio("Pilih jenis grafik", ["Diagram Batang", "Diagram Garis", "Diagram Sebar"])
 
-        # Bersihkan data kosong dan konversi angka bila memungkinkan
-        filtered_df = filtered_df.dropna(subset=[x_axis, y_axis])
-        filtered_df[x_axis] = pd.to_numeric(filtered_df[x_axis], errors="ignore")
-        filtered_df[y_axis] = pd.to_numeric(filtered_df[y_axis], errors="ignore")
+        # 🔹 Pembersihan aman sebelum grafik
+        df_viz = filtered_df.copy()
+        df_viz = df_viz.dropna(subset=[x_axis, y_axis])  # hilangkan baris kosong di X/Y
+        df_viz[x_axis] = df_viz[x_axis].astype(str)  # ubah X ke string agar aman untuk label
+        df_viz[y_axis] = pd.to_numeric(df_viz[y_axis], errors="coerce")  # coba ubah Y jadi angka
+        df_viz = df_viz.dropna(subset=[y_axis])  # buang jika Y bukan angka
 
-        # Fungsi deteksi tipe kolom
-        def detect_type(col):
-            try:
-                if pd.api.types.is_numeric_dtype(filtered_df[col]):
-                    return "quantitative"
-                elif pd.api.types.is_datetime64_any_dtype(filtered_df[col]):
-                    return "temporal"
-                else:
-                    return "nominal"
-            except Exception:
-                return "nominal"
-
-        x_type = detect_type(x_axis)
-        y_type = detect_type(y_axis)
-        tooltip_cols = [alt.Tooltip(c, type=detect_type(c)) for c in all_cols]
-
-        if chart_type == "Diagram Batang":
-            chart = alt.Chart(filtered_df).mark_bar().encode(
-                x=alt.X(x_axis, type=x_type),
-                y=alt.Y(y_axis, type=y_type),
-                tooltip=tooltip_cols
-            )
-        elif chart_type == "Diagram Garis":
-            chart = alt.Chart(filtered_df).mark_line(point=True).encode(
-                x=alt.X(x_axis, type=x_type),
-                y=alt.Y(y_axis, type=y_type),
-                tooltip=tooltip_cols
-            )
+        if df_viz.empty:
+            st.warning("⚠️ Tidak ada data valid untuk divisualisasikan. Coba pilih kolom lain.")
         else:
-            chart = alt.Chart(filtered_df).mark_circle(size=60).encode(
-                x=alt.X(x_axis, type=x_type),
-                y=alt.Y(y_axis, type=y_type),
-                tooltip=tooltip_cols
-            )
+            # Fungsi deteksi tipe kolom
+            def detect_type(col):
+                try:
+                    if pd.api.types.is_numeric_dtype(df_viz[col]):
+                        return "quantitative"
+                    elif pd.api.types.is_datetime64_any_dtype(df_viz[col]):
+                        return "temporal"
+                    else:
+                        return "nominal"
+                except Exception:
+                    return "nominal"
 
-        st.altair_chart(chart, use_container_width=True)
+            x_type = detect_type(x_axis)
+            y_type = detect_type(y_axis)
+            tooltip_cols = [alt.Tooltip(c, type=detect_type(c)) for c in df_viz.columns]
 
-        st.altair_chart(chart, use_container_width=True)
-                
+            if chart_type == "Diagram Batang":
+                chart = alt.Chart(df_viz).mark_bar().encode(
+                    x=alt.X(x_axis, type=x_type),
+                    y=alt.Y(y_axis, type=y_type),
+                    tooltip=tooltip_cols
+                )
+            elif chart_type == "Diagram Garis":
+                chart = alt.Chart(df_viz).mark_line(point=True).encode(
+                    x=alt.X(x_axis, type=x_type),
+                    y=alt.Y(y_axis, type=y_type),
+                    tooltip=tooltip_cols
+                )
+            else:
+                chart = alt.Chart(df_viz).mark_circle(size=60).encode(
+                    x=alt.X(x_axis, type=x_type),
+                    y=alt.Y(y_axis, type=y_type),
+                    tooltip=tooltip_cols
+                )
+
+            st.altair_chart(chart, use_container_width=True)
