@@ -1,101 +1,144 @@
 import streamlit as st
 import pandas as pd
+import os
 import altair as alt
-import io
 
-st.set_page_config(page_title="📊 Gabung & Visualisasi Data ODS/Excel", layout="wide")
-st.title("📊 Gabung Data Excel/ODS + Visualisasi Aman")
+st.title("📊 Gabung Data Excel/ODS + Visualisasi")
 
-# ======== Upload ========
-uploaded_files = st.file_uploader(
-    "Upload beberapa file Excel/ODS", 
-    type=["xlsx", "xls", "ods"], 
-    accept_multiple_files=True
-)
+# ======================
+# Upload atau Folder
+# ======================
+mode = st.radio("Pilih sumber data:", ["Upload File", "Pilih Folder"])
 
 data_frames = []
 
-if uploaded_files:
-    for file in uploaded_files:
-        try:
-            sheets = pd.read_excel(file, sheet_name=None, engine="openpyxl")
-        except:
-            sheets = pd.read_excel(file, sheet_name=None, engine="odf")
-
-        for sheet_name, df in sheets.items():
-            # Bersihkan header kosong
-            df = df.dropna(how="all").reset_index(drop=True)
-            df.columns = [
-                f"Kolom_{i+1}" if ("Unnamed" in str(c) or pd.isna(c)) else str(c).strip()
-                for i, c in enumerate(df.columns)
-            ]
-            df["__SHEET__"] = sheet_name
-            df["__FILE__"] = file.name
-            data_frames.append(df)
-
-    # ======== Gabungkan Semua Sheet ========
-    data_gabungan = pd.concat(data_frames, ignore_index=True, sort=False)
-    data_gabungan = data_gabungan.dropna(how="all")
-    st.subheader("📄 Data Gabungan (Semua Sheet)")
-    st.dataframe(data_gabungan, use_container_width=True)
-
-    # ======== Filter dengan Penanda ========
-    st.subheader("🔍 Filter (Tandai Data Sesuai Pilihan)")
-    filter_col = st.selectbox("Pilih kolom untuk filter", data_gabungan.columns)
-    if filter_col:
-        nilai_unik = sorted(data_gabungan[filter_col].dropna().unique().tolist())
-        pilihan = st.multiselect(f"Pilih nilai dari kolom '{filter_col}'", nilai_unik)
-
-        if pilihan:
-            data_gabungan["TERPILIH"] = data_gabungan[filter_col].isin(pilihan)
-        else:
-            data_gabungan["TERPILIH"] = False
-
-        st.dataframe(data_gabungan, use_container_width=True)
-
-    # ======== Unduh Data ========
-    st.subheader("💾 Unduh Data Gabungan")
-    towrite = io.BytesIO()
-    data_gabungan.to_excel(towrite, index=False, engine="openpyxl")
-    towrite.seek(0)
-    st.download_button(
-        "📥 Unduh Excel Gabungan", 
-        towrite, 
-        file_name="data_gabungan.xlsx"
+if mode == "Upload File":
+    uploaded_files = st.file_uploader(
+        "Upload file Excel/ODS (bisa banyak)", 
+        type=["xlsx", "xls", "ods"], 
+        accept_multiple_files=True
     )
 
-    # ======== Visualisasi Aman ========
-    st.subheader("📈 Visualisasi Data")
 
-    all_cols = [c for c in data_gabungan.columns if c not in ["__SHEET__", "__FILE__", "TERPILIH"]]
-    if len(all_cols) >= 2:
-        x_axis = st.selectbox("Sumbu X", all_cols)
-        y_axis = st.selectbox("Sumbu Y", all_cols, index=1)
+elif mode == "Pilih Folder":
+    folder = st.text_input("Masukkan path folder (isi file .xlsx/.ods)")
 
-        jenis_chart = st.radio("Pilih Jenis Grafik", ["Batang", "Garis", "Sebar"])
+    if folder and os.path.isdir(folder):
+        for fname in os.listdir(folder):
+            if fname.endswith((".xlsx", ".xls", ".ods")):
+                fpath = os.path.join(folder, fname)
+                try:
+                    sheets = pd.read_excel(fpath, sheet_name=None, engine="openpyxl")
+                except:
+                    sheets = pd.read_excel(fpath, sheet_name=None, engine="odf")
+                for name, df in sheets.items():
+                    df["__SHEET__"] = name
+                    df["__FILE__"] = fname
+                    data_frames.append(df)
 
-        # Konversi numerik jika bisa
-        for col in [x_axis, y_axis]:
+# ======================
+# Gabungan Data
+# ======================
+if data_frames:
+    data_gabungan = pd.concat(data_frames, ignore_index=True)
+
+    st.subheader("📄 Data Gabungan")
+    st.dataframe(data_gabungan)
+
+    # ======================
+    # Filter Data
+    # ======================
+    st.subheader("🔍 Penyaringan Data")
+    filter_columns = st.multiselect("Pilih kolom untuk filter", data_gabungan.columns)
+
+    filtered_df = data_gabungan.copy()
+    tampilkan_kolom = []
+
+    for kol in filter_columns:
+        unique_vals = filtered_df[kol].dropna().unique().tolist()
+        pilihan = st.multiselect(f"Pilih nilai untuk {kol}", unique_vals)
+        tampilkan_kolom.append(kol)
+        if pilihan:
+            filtered_df = filtered_df[filtered_df[kol].isin(pilihan)]
+
+    if tampilkan_kolom:
+        filtered_df = filtered_df[tampilkan_kolom]
+
+    st.write("### Data Setelah Penyaringan")
+    st.dataframe(filtered_df)
+
+    # ======================
+    # Unduh Data
+    # ======================
+    st.subheader("💾 Unduh Data")
+    out_excel = "data_gabungan.xlsx"
+    out_ods = "data_gabungan.ods"
+    filtered_df.to_excel(out_excel, index=False, engine="openpyxl")
+    filtered_df.to_excel(out_ods, index=False, engine="odf")
+
+    with open(out_excel, "rb") as f:
+        st.download_button("📥 Unduh Excel (.xlsx)", f, file_name=out_excel)
+
+    with open(out_ods, "rb") as f:
+        st.download_button("📥 Unduh ODS (.ods)", f, file_name=out_ods)
+
+    # ======================
+    # Visualisasi Grafik
+    # =====================
+    if filter_columns and not filtered_df.empty:
+        st.subheader("📈 Visualisasi Data")
+
+        # Bersihkan nama kolom dari Unnamed
+        clean_cols = []
+        for i, c in enumerate(filtered_df.columns):
+            if str(c).startswith("Unnamed"):
+                clean_cols.append(f"Kolom_{i+1}")
+            else:
+                clean_cols.append(str(c).strip())
+        filtered_df.columns = clean_cols
+
+        all_cols = filtered_df.columns.tolist()
+
+        x_axis = st.selectbox("Pilih kolom sumbu X", all_cols, key="x_axis")
+        y_axis = st.selectbox("Pilih kolom sumbu Y", [c for c in all_cols if c != x_axis], key="y_axis")
+
+        chart_type = st.radio("Pilih jenis grafik", ["Diagram Batang", "Diagram Garis", "Diagram Sebar"])
+
+        # Fungsi deteksi tipe kolom
+        def detect_type(col):
             try:
-                data_gabungan[col] = pd.to_numeric(data_gabungan[col], errors="ignore")
-            except:
-                pass
+                if pd.api.types.is_numeric_dtype(filtered_df[col]):
+                    return "quantitative"
+                elif pd.api.types.is_datetime64_any_dtype(filtered_df[col]):
+                    return "temporal"
+                else:
+                    return "nominal"
+            except Exception:
+                return "nominal"
 
-        base = alt.Chart(data_gabungan).encode(
-            x=alt.X(x_axis, title=x_axis),
-            y=alt.Y(y_axis, title=y_axis),
-            color=alt.condition(
-                alt.datum.TERPILIH == True,
-                alt.value("red"), alt.value("steelblue")
-            ),
-            tooltip=list(data_gabungan.columns)
-        )
+        x_type = detect_type(x_axis)
+        y_type = detect_type(y_axis)
 
-        if jenis_chart == "Batang":
-            chart = base.mark_bar()
-        elif jenis_chart == "Garis":
-            chart = base.mark_line(point=True)
-        else:
-            chart = base.mark_circle(size=80)
+        # Tooltip aman
+        tooltip_cols = [alt.Tooltip(c, type=detect_type(c)) for c in all_cols]
 
-        st.altair_chart(chart.interactive(), use_container_width=True)
+        if chart_type == "Diagram Batang":
+            chart = alt.Chart(filtered_df).mark_bar().encode(
+                x=alt.X(x_axis, type=x_type),
+                y=alt.Y(y_axis, type=y_type),
+                tooltip=tooltip_cols
+            )
+        elif chart_type == "Diagram Garis":
+            chart = alt.Chart(filtered_df).mark_line(point=True).encode(
+                x=alt.X(x_axis, type=x_type),
+                y=alt.Y(y_axis, type=y_type),
+                tooltip=tooltip_cols
+            )
+        else:  # Diagram Sebar
+            chart = alt.Chart(filtered_df).mark_circle(size=60).encode(
+                x=alt.X(x_axis, type=x_type),
+                y=alt.Y(y_axis, type=y_type),
+                tooltip=tooltip_cols
+            )
+
+        st.altair_chart(chart, use_container_width=True)
