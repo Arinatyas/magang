@@ -92,11 +92,14 @@ if data_frames:
     with open(out_ods, "rb") as f:
         st.download_button("📥 Unduh ODS (.ods)", f, file_name=out_ods)
 
-       # ======================
+    # ======================
     # Visualisasi Grafik
     # =====================
     if filter_columns and not filtered_df.empty:
         st.subheader("📈 Visualisasi Data")
+
+        # --- Perbaikan: ubah nama kolom numerik menjadi string ---
+        filtered_df.columns = [str(c) for c in filtered_df.columns]
 
         all_cols = filtered_df.columns.tolist()
         x_col = st.selectbox("Pilih kolom sumbu X", all_cols, key="x_col")
@@ -109,7 +112,6 @@ if data_frames:
 
         # ====== FUNGSI PENENTUAN TIPE DOMINAN ======
         def detect_dominant_type(series):
-            """Menentukan tipe dominan dalam kolom campuran teks/angka."""
             numeric_count = 0
             text_count = 0
             for val in series.dropna():
@@ -118,19 +120,13 @@ if data_frames:
                     numeric_count += 1
                 except:
                     text_count += 1
-            if numeric_count >= text_count:
-                return "quantitative"
-            else:
-                return "nominal"
+            return "quantitative" if numeric_count >= text_count else "nominal"
 
-        # ====== BERSIHKAN DATA BERDASARKAN TIPE DOMINAN ======
+        # ====== Pembersihan Berdasarkan Tipe ======
         def clean_column(series, dominant_type):
-            """Membersihkan kolom agar hanya sesuai tipe dominan."""
             if dominant_type == "quantitative":
-                # ubah ke numerik, hapus non-numerik
                 return pd.to_numeric(series, errors="coerce")
             else:
-                # ubah ke string, hapus NaN
                 return series.astype(str)
 
         # Deteksi tipe dominan untuk X dan Y
@@ -140,17 +136,16 @@ if data_frames:
         df_filtered[x_col] = clean_column(df_filtered[x_col], x_type)
         df_filtered[y_col] = clean_column(df_filtered[y_col], y_type)
 
-        # Drop baris yang jadi kosong setelah dibersihkan
+        # Drop baris kosong setelah dibersihkan
         df_filtered = df_filtered.dropna(subset=[x_col, y_col])
 
         if df_filtered.empty:
             st.warning("⚠️ Tidak ada data valid untuk divisualisasikan setelah pembersihan.")
         else:
             try:
-                # Tooltip aman
-                tooltip_cols = [alt.Tooltip(c, type="nominal") for c in df_filtered.columns]
+                tooltip_cols = [alt.Tooltip(str(c), type="nominal") for c in df_filtered.columns]
 
-                # Buat grafik sesuai pilihan
+                # Buat grafik
                 if chart_type == "Diagram Batang":
                     chart = alt.Chart(df_filtered).mark_bar().encode(
                         x=alt.X(x_col, type=x_type),
@@ -174,3 +169,5 @@ if data_frames:
 
             except Exception as e:
                 st.warning(f"⚠️ Terjadi error saat membuat grafik: {e}")
+                    
+                
