@@ -19,6 +19,16 @@ if mode == "Upload File":
         accept_multiple_files=True
     )
 
+    if uploaded_files:
+        for uploaded_file in uploaded_files:
+            try:
+                sheets = pd.read_excel(uploaded_file, sheet_name=None, header=None, engine="openpyxl")
+            except:
+                sheets = pd.read_excel(uploaded_file, sheet_name=None, header=None, engine="odf")
+            for name, df in sheets.items():
+                df["__SHEET__"] = name
+                df["__FILE__"] = uploaded_file.name
+                data_frames.append(df)
 
 elif mode == "Pilih Folder":
     folder = st.text_input("Masukkan path folder (isi file .xlsx/.ods)")
@@ -28,9 +38,9 @@ elif mode == "Pilih Folder":
             if fname.endswith((".xlsx", ".xls", ".ods")):
                 fpath = os.path.join(folder, fname)
                 try:
-                    sheets = pd.read_excel(fpath, sheet_name=None, engine="openpyxl")
+                    sheets = pd.read_excel(fpath, sheet_name=None, header=None, engine="openpyxl")
                 except:
-                    sheets = pd.read_excel(fpath, sheet_name=None, engine="odf")
+                    sheets = pd.read_excel(fpath, sheet_name=None, header=None, engine="odf")
                 for name, df in sheets.items():
                     df["__SHEET__"] = name
                     df["__FILE__"] = fname
@@ -88,23 +98,12 @@ if data_frames:
     if filter_columns and not filtered_df.empty:
         st.subheader("📈 Visualisasi Data")
 
-        # Bersihkan nama kolom dari Unnamed
-        clean_cols = []
-        for i, c in enumerate(filtered_df.columns):
-            if str(c).startswith("Unnamed"):
-                clean_cols.append(f"Kolom_{i+1}")
-            else:
-                clean_cols.append(str(c).strip())
-        filtered_df.columns = clean_cols
-
         all_cols = filtered_df.columns.tolist()
-
         x_axis = st.selectbox("Pilih kolom sumbu X", all_cols, key="x_axis")
         y_axis = st.selectbox("Pilih kolom sumbu Y", [c for c in all_cols if c != x_axis], key="y_axis")
 
         chart_type = st.radio("Pilih jenis grafik", ["Diagram Batang", "Diagram Garis", "Diagram Sebar"])
 
-        # Fungsi deteksi tipe kolom
         def detect_type(col):
             try:
                 if pd.api.types.is_numeric_dtype(filtered_df[col]):
@@ -118,8 +117,6 @@ if data_frames:
 
         x_type = detect_type(x_axis)
         y_type = detect_type(y_axis)
-
-        # Tooltip aman
         tooltip_cols = [alt.Tooltip(c, type=detect_type(c)) for c in all_cols]
 
         if chart_type == "Diagram Batang":
@@ -134,7 +131,7 @@ if data_frames:
                 y=alt.Y(y_axis, type=y_type),
                 tooltip=tooltip_cols
             )
-        else:  # Diagram Sebar
+        else:
             chart = alt.Chart(filtered_df).mark_circle(size=60).encode(
                 x=alt.X(x_axis, type=x_type),
                 y=alt.Y(y_axis, type=y_type),
@@ -142,3 +139,4 @@ if data_frames:
             )
 
         st.altair_chart(chart, use_container_width=True)
+                
