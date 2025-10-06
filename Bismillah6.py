@@ -92,7 +92,7 @@ if data_frames:
     with open(out_ods, "rb") as f:
         st.download_button("📥 Unduh ODS (.ods)", f, file_name=out_ods)
 
-    # ======================
+        # ======================
     # Visualisasi Grafik
     # =====================
     if filter_columns and not filtered_df.empty:
@@ -104,6 +104,12 @@ if data_frames:
 
         chart_type = st.radio("Pilih jenis grafik", ["Diagram Batang", "Diagram Garis", "Diagram Sebar"])
 
+        # Bersihkan data kosong dan konversi angka bila memungkinkan
+        filtered_df = filtered_df.dropna(subset=[x_axis, y_axis])
+        filtered_df[x_axis] = pd.to_numeric(filtered_df[x_axis], errors="ignore")
+        filtered_df[y_axis] = pd.to_numeric(filtered_df[y_axis], errors="ignore")
+
+        # Fungsi deteksi tipe kolom
         def detect_type(col):
             try:
                 if pd.api.types.is_numeric_dtype(filtered_df[col]):
@@ -137,6 +143,8 @@ if data_frames:
                 y=alt.Y(y_axis, type=y_type),
                 tooltip=tooltip_cols
             )
+
+        st.altair_chart(chart, use_container_width=True)
 
         st.altair_chart(chart, use_container_width=True)
                 
