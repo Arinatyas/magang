@@ -2,223 +2,127 @@ import streamlit as st
 import pandas as pd
 import os
 import altair as alt
-from io import BytesIO
 
-# ======================
-# Konfigurasi Tampilan (Tema)
-# ======================
-st.set_page_config(
-    page_title="🌐 Web untuk Menggabungkan, Memfilter, dan Memvisualisasikan Data",
-    page_icon="📈",
-    layout="wide",
-    initial_sidebar_state="collapsed"
-)
+st.set_page_config(page_title="📊 Web Gabung, Filter & Visualisasi Data", layout="wide")
 
-# CSS Kustom
-st.markdown("""
-    <style>
-    body {background-color: #f5f9ff; color: #0d1b2a;}
-    .main {
-        background-color: #ffffff;
-        border-radius: 15px;
-        padding: 20px 25px;
-        box-shadow: 0px 0px 10px rgba(0, 60, 120, 0.1);
-    }
-    h1, h2, h3, h4 {color: #0d47a1; font-weight: 700;}
-    div.stButton > button:first-child {
-        background-color: #1976d2; color: white; border-radius: 10px; border: none;
-        padding: 0.5rem 1.5rem; transition: 0.3s;
-    }
-    div.stButton > button:first-child:hover {
-        background-color: #1565c0; transform: scale(1.03);
-    }
-    div[data-testid="stDownloadButton"] button {
-        background-color: #0d47a1; color: white; border-radius: 8px; transition: 0.3s;
-    }
-    div[data-testid="stDownloadButton"] button:hover {
-        background-color: #1565c0; transform: scale(1.02);
-    }
-    section[data-testid="stSidebar"] {background-color: #e3f2fd;}
-    </style>
-""", unsafe_allow_html=True)
+st.title("📊 Web Gabung, Filter & Visualisasi Data")
+st.caption("Mendukung Excel & ODS, fleksibel untuk struktur berbeda")
 
-# ======================
-# Judul
-# ======================
-st.title("🌐 Web untuk Menggabungkan, Memfilter, dan Memvisualisasikan Data")
-st.caption("Versi fleksibel dengan deteksi otomatis header, merge cell, dan visualisasi interaktif")
-
-# ======================
-# Upload atau Folder
-# ======================
+# Pilihan upload
 mode = st.radio("Pilih sumber data:", ["Upload File", "Pilih Folder"])
+
 data_frames = []
 
-# ======================
-# Fungsi bantu
-# ======================
-def baca_sheet_dengan_deteksi(file, sheet_name, ext):
+def read_file(filepath):
+    ext = os.path.splitext(filepath)[-1].lower()
+    engine = "openpyxl" if ext in [".xlsx", ".xls"] else "odf"
     try:
-        if ext == "ods":
-            df_raw = pd.read_excel(file, sheet_name=sheet_name, header=None, engine="odf")
-        else:
-            df_raw = pd.read_excel(file, sheet_name=sheet_name, header=None, engine="openpyxl")
-
-        header_row = df_raw.apply(lambda x: x.notna().sum(), axis=1).idxmax()
-        if ext == "ods":
-            df = pd.read_excel(file, sheet_name=sheet_name, header=header_row, engine="odf")
-        else:
-            df = pd.read_excel(file, sheet_name=sheet_name, header=header_row, engine="openpyxl")
-
-        df.columns = (
-            df.columns.astype(str)
-            .str.strip()
-            .str.lower()
-            .str.replace(" ", "_")
-            .str.replace(r"[^a-zA-Z0-9_]", "", regex=True)
-        )
-        df = df.ffill(axis=0)
-        return df
+        sheets = pd.read_excel(filepath, sheet_name=None, header=None, engine=engine)
     except Exception as e:
-        st.warning(f"❗ Gagal membaca sheet {sheet_name}: {e}")
-        return None
+        st.warning(f"Gagal membaca {filepath}: {e}")
+        return []
+    
+    dfs = []
+    for sheet_name, df in sheets.items():
+        # Hilangkan kolom/baris kosong penuh
+        df = df.dropna(how='all').dropna(axis=1, how='all')
 
-# ======================
+        # Tentukan baris header otomatis (baris paling lengkap)
+        header_row = df.notna().sum(axis=1).idxmax()
+        df.columns = df.iloc[header_row].astype(str)
+        df = df.iloc[header_row+1:].reset_index(drop=True)
+
+        # Ganti kolom kosong dengan nama generik
+        df.columns = [col if col.strip() != '' else f"Kolom_{i}" for i, col in enumerate(df.columns)]
+        df.columns = [c if c.lower() != 'nan' else f"Kolom_{i}" for i, c in enumerate(df.columns)]
+        
+        # Tambahkan metadata
+        df["__SHEET__"] = sheet_name
+        df["__FILE__"] = os.path.basename(filepath)
+        dfs.append(df)
+    return dfs
+
+# ===============================
 # Mode Upload
-# ======================
+# ===============================
 if mode == "Upload File":
-    uploaded_files = st.file_uploader(
-        "Upload file Excel/ODS (bisa banyak)",
-        type=["xlsx", "xls", "ods"],
-        accept_multiple_files=True
-    )
+    uploaded_files = st.file_uploader("Upload Excel/ODS", type=["xlsx", "xls", "ods"], accept_multiple_files=True)
     if uploaded_files:
-        for uploaded_file in uploaded_files:
-            ext = uploaded_file.name.split(".")[-1].lower()
-            try:
-                if ext == "ods":
-                    sheets = pd.read_excel(uploaded_file, sheet_name=None, engine="odf")
-                else:
-                    sheets = pd.read_excel(uploaded_file, sheet_name=None, engine="openpyxl")
+        for f in uploaded_files:
+            data_frames.extend(read_file(f))
 
-                for name in sheets.keys():
-                    df = baca_sheet_dengan_deteksi(uploaded_file, name, ext)
-                    if df is not None:
-                        df["__SHEET__"] = name
-                        df["__FILE__"] = uploaded_file.name
-                        data_frames.append(df)
-            except Exception as e:
-                st.warning(f"Gagal membaca file {uploaded_file.name}: {e}")
-
-# ======================
+# ===============================
 # Mode Folder
-# ======================
-elif mode == "Pilih Folder":
-    folder = st.text_input("Masukkan path folder (isi file .xlsx/.ods)")
+# ===============================
+else:
+    folder = st.text_input("Masukkan path folder")
     if folder and os.path.isdir(folder):
         for fname in os.listdir(folder):
             if fname.endswith((".xlsx", ".xls", ".ods")):
                 fpath = os.path.join(folder, fname)
-                ext = fname.split(".")[-1].lower()
-                try:
-                    if ext == "ods":
-                        sheets = pd.read_excel(fpath, sheet_name=None, engine="odf")
-                    else:
-                        sheets = pd.read_excel(fpath, sheet_name=None, engine="openpyxl")
-                    for name in sheets.keys():
-                        df = baca_sheet_dengan_deteksi(fpath, name, ext)
-                        if df is not None:
-                            df["__SHEET__"] = name
-                            df["__FILE__"] = fname
-                            data_frames.append(df)
-                except Exception as e:
-                    st.warning(f"Gagal membaca {fname}: {e}")
+                data_frames.extend(read_file(fpath))
 
-# ======================
-# Gabungkan Data
-# ======================
+# ===============================
+# Gabung Data
+# ===============================
 if data_frames:
-    data_gabungan = pd.concat(data_frames, ignore_index=True).fillna("")
+    data_gabungan = pd.concat(data_frames, ignore_index=True)
     st.subheader("📄 Data Gabungan")
     st.dataframe(data_gabungan)
 
-    # ======================
-    # Tombol Unduh
-    # ======================
-    st.subheader("💾 Unduh Data Gabungan")
-    csv_data = data_gabungan.to_csv(index=False).encode("utf-8")
-    st.download_button("📥 Unduh CSV", csv_data, file_name="data_gabungan.csv", mime="text/csv")
-
-    buffer = BytesIO()
-    with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
-        data_gabungan.to_excel(writer, index=False, sheet_name="Gabungan")
-    st.download_button(
-        label="📥 Unduh Excel (.xlsx)",
-        data=buffer.getvalue(),
-        file_name="data_gabungan.xlsx",
-        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-    )
-
-    # ======================
-    # Filter Data
-    # ======================
+    # ===============================
+    # Filter
+    # ===============================
     st.subheader("🔍 Penyaringan Data")
     filter_columns = st.multiselect("Pilih kolom untuk filter", data_gabungan.columns)
-    filtered_df = data_gabungan.copy()
-
+    df_filtered = data_gabungan.copy()
     for kol in filter_columns:
-        unique_vals = filtered_df[kol].dropna().unique().tolist()
-        pilihan = st.multiselect(f"Filter nilai untuk {kol}", unique_vals, default=unique_vals)
-        filtered_df = filtered_df[filtered_df[kol].isin(pilihan)]
+        unique_vals = df_filtered[kol].dropna().unique().tolist()
+        pilihan = st.multiselect(f"Pilih nilai {kol}", unique_vals)
+        if pilihan:
+            df_filtered = df_filtered[df_filtered[kol].isin(pilihan)]
 
     st.write("### Data Setelah Penyaringan")
-    st.dataframe(filtered_df)
+    st.dataframe(df_filtered)
 
-    # ======================
-    # Transpose Otomatis (opsional)
-    # ======================
-    transpose_opt = st.checkbox("🔄 Tampilkan versi transpose sebelum visualisasi")
-    if transpose_opt:
-        filtered_df = filtered_df.T.reset_index()
-        filtered_df.columns = ["Kolom"] + [f"Baris_{i}" for i in range(1, len(filtered_df.columns))]
-        st.dataframe(filtered_df)
+    # ===============================
+    # Unduh hasil
+    # ===============================
+    out_excel = "hasil_gabungan.xlsx"
+    out_ods = "hasil_gabungan.ods"
+    df_filtered.to_excel(out_excel, index=False)
+    df_filtered.to_excel(out_ods, index=False, engine="odf")
 
-    # ======================
+    with open(out_excel, "rb") as f:
+        st.download_button("📥 Unduh Excel", f, file_name=out_excel)
+    with open(out_ods, "rb") as f:
+        st.download_button("📥 Unduh ODS", f, file_name=out_ods)
+
+    # ===============================
     # Visualisasi
-    # ======================
-    if not filtered_df.empty:
-        st.subheader("📈 Visualisasi Data")
-        all_cols = filtered_df.columns.tolist()
-        if len(all_cols) >= 2:
-            x_col = st.selectbox("Pilih kolom sumbu X", all_cols, key="x_col")
-            y_col = st.selectbox("Pilih kolom sumbu Y", [c for c in all_cols if c != x_col], key="y_col")
-            chart_type = st.radio("Pilih jenis grafik", ["Diagram Batang", "Diagram Garis", "Diagram Sebar"])
+    # ===============================
+    st.subheader("📊 Visualisasi Data")
+    if len(df_filtered.columns) >= 2:
+        x_col = st.selectbox("Kolom X", df_filtered.columns)
+        y_col = st.selectbox("Kolom Y", [c for c in df_filtered.columns if c != x_col])
+        chart_type = st.radio("Jenis Grafik", ["Bar", "Line", "Scatter"])
 
-            df_vis = filtered_df.dropna(subset=[x_col, y_col])
-
+        # Ubah otomatis tipe numerik / teks
+        def convert(series):
             try:
-                tooltip_cols = [alt.Tooltip(str(c), type="nominal") for c in df_vis.columns]
-                if chart_type == "Diagram Batang":
-                    chart = alt.Chart(df_vis).mark_bar(color="#1976d2").encode(
-                        x=alt.X(x_col, type="nominal"),
-                        y=alt.Y(y_col, type="quantitative"),
-                        tooltip=tooltip_cols
-                    )
-                elif chart_type == "Diagram Garis":
-                    chart = alt.Chart(df_vis).mark_line(color="#0d47a1", point=True).encode(
-                        x=alt.X(x_col, type="nominal"),
-                        y=alt.Y(y_col, type="quantitative"),
-                        tooltip=tooltip_cols
-                    )
-                else:
-                    chart = alt.Chart(df_vis).mark_circle(size=70, color="#42a5f5").encode(
-                        x=alt.X(x_col, type="quantitative"),
-                        y=alt.Y(y_col, type="quantitative"),
-                        tooltip=tooltip_cols
-                    )
-                st.altair_chart(chart, use_container_width=True)
-            except Exception as e:
-                st.warning(f"⚠️ Terjadi error saat membuat grafik: {e}")
-else:
-    st.info("💡 Silakan upload file Excel/ODS atau pilih folder untuk mulai.")
+                return pd.to_numeric(series, errors="coerce")
+            except:
+                return series.astype(str)
+        
+        df_filtered[y_col] = convert(df_filtered[y_col])
+        df_filtered[x_col] = df_filtered[x_col].astype(str)
+
+        if chart_type == "Bar":
+            chart = alt.Chart(df_filtered).mark_bar(color="#1976d2").encode(x=x_col, y=y_col, tooltip=list(df_filtered.columns))
+        elif chart_type == "Line":
+            chart = alt.Chart(df_filtered).mark_line(point=True, color="#0d47a1").encode(x=x_col, y=y_col, tooltip=list(df_filtered.columns))
+        else:
+            chart = alt.Chart(df_filtered).mark_circle(size=80, color="#42a5f5").encode(x=x_col, y=y_col, tooltip=list(df_filtered.columns))
+
+        st.altair_chart(chart, use_container_width=True)
     
