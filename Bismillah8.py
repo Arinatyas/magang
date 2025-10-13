@@ -1,129 +1,91 @@
 import streamlit as st
 import pandas as pd
 import os
-import altair as alt
 
 # ======================
-# Konfigurasi Tampilan (Tema)
+# Konfigurasi Tampilan
 # ======================
 st.set_page_config(
-    page_title="📊 Gabung Data + Visualisasi",
-    page_icon="📈",
+    page_title="📑 Baca Semua Sheet (Header Otomatis/Manual)",
+    page_icon="📘",
     layout="wide",
-    initial_sidebar_state="collapsed"
 )
 
-# CSS Kustom untuk tema biru putih elegan
-st.markdown("""
-    <style>
-    body { background-color: #f5f9ff; color: #0d1b2a; }
-    .main { background-color: #ffffff; border-radius: 15px; padding: 20px 25px; box-shadow: 0px 0px 10px rgba(0, 60, 120, 0.1); }
-    h1, h2, h3, h4 { color: #0d47a1; font-weight: 700; }
-    div.stButton > button:first-child {
-        background-color: #1976d2; color: white; border-radius: 10px; border: none; padding: 0.5rem 1.5rem; transition: 0.3s;
-    }
-    div.stButton > button:first-child:hover { background-color: #1565c0; transform: scale(1.03); }
-    .stRadio > label, .stSelectbox > label { font-weight: 600; color: #0d47a1; }
-    .stDataFrame { border-radius: 12px !important; border: 1px solid #d0e3ff !important; }
-    div[data-testid="stDownloadButton"] button {
-        background-color: #0d47a1; color: white; border-radius: 8px; transition: 0.3s;
-    }
-    div[data-testid="stDownloadButton"] button:hover {
-        background-color: #1565c0; transform: scale(1.02);
-    }
-    section[data-testid="stSidebar"] { background-color: #e3f2fd; }
-    </style>
-""", unsafe_allow_html=True)
-
-# ======================
-# Judul
-# ======================
-st.title("📊 Gabung Data Excel/ODS + Visualisasi")
-st.caption("Versi dengan deteksi header otomatis + opsi manual")
-
-# ======================
-# Fungsi Deteksi Header Otomatis
-# ======================
-def detect_header_row(df, max_rows=10):
-    """
-    Mendeteksi baris header paling mungkin berdasarkan skor kombinasi:
-    - Banyak sel tidak kosong
-    - Banyak nilai unik
-    - Banyak teks pendek
-    """
-    best_score = -1
-    best_row = 0
-
-    for i in range(min(max_rows, len(df))):
-        row = df.iloc[i]
-        non_empty = row.notna().sum()
-        unique_vals = row.nunique()
-        short_texts = sum(isinstance(v, str) and len(v) <= 20 for v in row)
-
-        score = (non_empty * 0.4) + (unique_vals * 0.4) + (short_texts * 0.2)
-        if score > best_score:
-            best_score = score
-            best_row = i
-
-    return best_row
-
-# ======================
-# Pilihan sumber data
-# ======================
-mode = st.radio("Pilih sumber data:", ["Upload File", "Pilih Folder"])
-header_mode = st.radio("Metode pembacaan header:", ["Otomatis", "Manual"])
-
-data_frames = []
-
-# ======================
-# Fungsi baca file dengan deteksi header
-# ======================
-def read_file_with_header(file_path_or_obj, file_name, header_mode):
-    try:
-        # baca tanpa header dulu
-        df_raw = pd.read_excel(file_path_or_obj, header=None, engine="openpyxl")
-    except:
-        df_raw = pd.read_excel(file_path_or_obj, header=None, engine="odf")
-
-    st.markdown(f"### 📄 {file_name}")
-    st.write("Pratinjau data awal:")
-    st.dataframe(df_raw.head(10))
-
-    if header_mode == "Otomatis":
-        best_row = detect_header_row(df_raw)
-        st.info(f"🧠 Deteksi otomatis: baris ke-{best_row + 1} kemungkinan besar adalah header.")
-        df = pd.read_excel(file_path_or_obj, header=best_row)
-        st.success(f"✅ Menggunakan header dari baris ke-{best_row + 1}")
-    else:
-        # Mode manual
-        st.write("📋 Pilih baris yang akan dijadikan header:")
-        header_row = st.number_input(f"Pilih baris header untuk {file_name}", min_value=0, max_value=10, value=0, step=1)
-        use_header = st.button(f"Gunakan baris ke-{header_row + 1} sebagai header untuk {file_name}")
-
-        if use_header:
-            df = pd.read_excel(file_path_or_obj, header=header_row)
-            st.success(f"✅ Menggunakan baris ke-{header_row + 1} sebagai header.")
-        else:
-            df = pd.read_excel(file_path_or_obj, header=None)
-            st.warning("⚠️ Belum memilih header — menggunakan tanpa header sementara.")
-
-    df["__FILE__"] = file_name
-    return df
+st.title("📑 Baca File Excel/ODS per Sheet dengan Opsi Header Otomatis atau Manual")
 
 # ======================
 # Upload File
 # ======================
-if mode == "Upload File":
-    uploaded_files = st.file_uploader(
-        "Upload file Excel/ODS (bisa banyak)",
-        type=["xlsx", "xls", "ods"],
-        accept_multiple_files=True
-    )
+uploaded_file = st.file_uploader("📂 Upload file Excel (.xlsx) atau ODS (.ods)", type=["xlsx", "xls", "ods"])
 
-    if uploaded_files:
-        for uploaded_file in uploaded_files:
-            df = read_file_with_header(uploaded_file, uploaded_file.name, header_mode)
-            data_frames.append(df)
+if uploaded_file is not None:
+    file_name = uploaded_file.name
+    st.info(f"📄 File terdeteksi: **{file_name}**")
+
+    # Deteksi ekstensi file
+    ext = os.path.splitext(file_name)[-1].lower()
+
+    # ======================
+    # Ambil semua sheet
+    # ======================
+    try:
+        if ext == ".ods":
+            sheets = pd.read_excel(uploaded_file, sheet_name=None, engine="odf")
+        else:
+            sheets = pd.read_excel(uploaded_file, sheet_name=None)
+
+        st.success(f"✅ Berhasil membaca {len(sheets)} sheet dari file ini!")
+
+        for sheet_name, sheet_data in sheets.items():
+            st.subheader(f"📄 Sheet: {sheet_name}")
+
+            # ================
+            # Pilihan Header
+            # ================
+            pilihan_header = st.radio(
+                f"Pilih metode header untuk **{sheet_name}**:",
+                ["Otomatis", "Manual"],
+                key=f"pilihan_{sheet_name}"
+            )
+
+            if pilihan_header == "Otomatis":
+                # Coba deteksi header otomatis berdasarkan baris unik (tidak banyak NaN)
+                header_row = None
+                for i in range(min(10, len(sheet_data))):  # cek 10 baris pertama
+                    non_null_ratio = sheet_data.iloc[i].notna().mean()
+                    if non_null_ratio > 0.7:  # kalau baris cukup lengkap
+                        header_row = i
+                        break
+                if header_row is None:
+                    header_row = 0
+
+                df = pd.read_excel(uploaded_file, sheet_name=sheet_name, header=header_row, engine="odf" if ext == ".ods" else None)
+                st.write(f"🧭 Header otomatis diambil dari baris ke-{header_row + 1}")
+
+            else:
+                # Manual: user pilih baris ke berapa untuk header
+                max_row = len(sheet_data)
+                header_row_manual = st.number_input(
+                    f"Masukkan baris header untuk {sheet_name} (mulai dari 1):",
+                    min_value=1,
+                    max_value=max_row,
+                    value=1,
+                    key=f"header_manual_{sheet_name}"
+                )
+                df = pd.read_excel(uploaded_file, sheet_name=sheet_name, header=header_row_manual - 1, engine="odf" if ext == ".ods" else None)
+                st.write(f"🧭 Header manual diambil dari baris ke-{header_row_manual}")
+
+            # =================
+            # Tampilkan data
+            # =================
+            st.dataframe(df.head())
+
+    except Exception as e:
+        st.error(f"❌ Gagal membaca file: {e}")
+
+else:
+    st.warning("⚠️ Silakan upload file Excel atau ODS terlebih dahulu.")
+    
 
 # ======================
 # Pilih Folder
