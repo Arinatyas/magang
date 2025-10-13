@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import os
 import altair as alt
+from io import BytesIO
 
 st.set_page_config(page_title="📊 Web Gabung, Filter & Visualisasi Data", layout="wide")
 
@@ -13,13 +14,25 @@ mode = st.radio("Pilih sumber data:", ["Upload File", "Pilih Folder"])
 
 data_frames = []
 
-def read_file(filepath):
-    ext = os.path.splitext(filepath)[-1].lower()
+def read_file(file):
+    """Membaca file Excel/ODS dari upload atau folder"""
+    # --- deteksi tipe file ---
+    if isinstance(file, str):  # path dari folder
+        filepath = file
+        filename = os.path.basename(filepath)
+        ext = os.path.splitext(filepath)[-1].lower()
+        file_data = filepath
+    else:  # UploadedFile dari Streamlit
+        filename = file.name
+        ext = os.path.splitext(filename)[-1].lower()
+        file_data = BytesIO(file.read())
+
     engine = "openpyxl" if ext in [".xlsx", ".xls"] else "odf"
+
     try:
-        sheets = pd.read_excel(filepath, sheet_name=None, header=None, engine=engine)
+        sheets = pd.read_excel(file_data, sheet_name=None, header=None, engine=engine)
     except Exception as e:
-        st.warning(f"Gagal membaca {filepath}: {e}")
+        st.warning(f"Gagal membaca {filename}: {e}")
         return []
     
     dfs = []
@@ -27,18 +40,21 @@ def read_file(filepath):
         # Hilangkan kolom/baris kosong penuh
         df = df.dropna(how='all').dropna(axis=1, how='all')
 
+        if df.empty:
+            continue
+
         # Tentukan baris header otomatis (baris paling lengkap)
         header_row = df.notna().sum(axis=1).idxmax()
         df.columns = df.iloc[header_row].astype(str)
         df = df.iloc[header_row+1:].reset_index(drop=True)
 
         # Ganti kolom kosong dengan nama generik
-        df.columns = [col if col.strip() != '' else f"Kolom_{i}" for i, col in enumerate(df.columns)]
+        df.columns = [col if str(col).strip() != '' else f"Kolom_{i}" for i, col in enumerate(df.columns)]
         df.columns = [c if c.lower() != 'nan' else f"Kolom_{i}" for i, c in enumerate(df.columns)]
         
         # Tambahkan metadata
         df["__SHEET__"] = sheet_name
-        df["__FILE__"] = os.path.basename(filepath)
+        df["__FILE__"] = filename
         dfs.append(df)
     return dfs
 
@@ -118,11 +134,14 @@ if data_frames:
         df_filtered[x_col] = df_filtered[x_col].astype(str)
 
         if chart_type == "Bar":
-            chart = alt.Chart(df_filtered).mark_bar(color="#1976d2").encode(x=x_col, y=y_col, tooltip=list(df_filtered.columns))
+            chart = alt.Chart(df_filtered).mark_bar(color="#1976d2").encode(
+                x=x_col, y=y_col, tooltip=list(df_filtered.columns))
         elif chart_type == "Line":
-            chart = alt.Chart(df_filtered).mark_line(point=True, color="#0d47a1").encode(x=x_col, y=y_col, tooltip=list(df_filtered.columns))
+            chart = alt.Chart(df_filtered).mark_line(point=True, color="#0d47a1").encode(
+                x=x_col, y=y_col, tooltip=list(df_filtered.columns))
         else:
-            chart = alt.Chart(df_filtered).mark_circle(size=80, color="#42a5f5").encode(x=x_col, y=y_col, tooltip=list(df_filtered.columns))
+            chart = alt.Chart(df_filtered).mark_circle(size=80, color="#42a5f5").encode(
+                x=x_col, y=y_col, tooltip=list(df_filtered.columns))
 
         st.altair_chart(chart, use_container_width=True)
     
