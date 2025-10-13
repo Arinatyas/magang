@@ -7,7 +7,7 @@ import altair as alt
 # Konfigurasi Tampilan
 # ======================
 st.set_page_config(
-    page_title="📊 Gabung Data + Visualisasi",
+    page_title="📊 Gabung Data Excel/ODS + Visualisasi",
     page_icon="📈",
     layout="wide",
     initial_sidebar_state="collapsed"
@@ -16,53 +16,22 @@ st.set_page_config(
 # CSS Tema Biru Putih Elegan
 st.markdown("""
     <style>
-    body {
-        background-color: #f5f9ff;
-        color: #0d1b2a;
-    }
-    .main {
-        background-color: #ffffff;
-        border-radius: 15px;
-        padding: 20px 25px;
-        box-shadow: 0px 0px 10px rgba(0, 60, 120, 0.1);
-    }
-    h1, h2, h3, h4 {
-        color: #0d47a1;
-        font-weight: 700;
-    }
+    body { background-color: #f5f9ff; color: #0d1b2a; }
+    .main { background-color: #ffffff; border-radius: 15px; padding: 20px 25px; box-shadow: 0px 0px 10px rgba(0, 60, 120, 0.1); }
+    h1, h2, h3, h4 { color: #0d47a1; font-weight: 700; }
     div.stButton > button:first-child {
-        background-color: #1976d2;
-        color: white;
-        border-radius: 10px;
-        border: none;
-        padding: 0.5rem 1.5rem;
-        transition: 0.3s;
+        background-color: #1976d2; color: white; border-radius: 10px; border: none; padding: 0.5rem 1.5rem; transition: 0.3s;
     }
-    div.stButton > button:first-child:hover {
-        background-color: #1565c0;
-        transform: scale(1.03);
-    }
-    .stRadio > label, .stSelectbox > label {
-        font-weight: 600;
-        color: #0d47a1;
-    }
-    .stDataFrame {
-        border-radius: 12px !important;
-        border: 1px solid #d0e3ff !important;
-    }
+    div.stButton > button:first-child:hover { background-color: #1565c0; transform: scale(1.03); }
+    .stRadio > label, .stSelectbox > label { font-weight: 600; color: #0d47a1; }
+    .stDataFrame { border-radius: 12px !important; border: 1px solid #d0e3ff !important; }
     div[data-testid="stDownloadButton"] button {
-        background-color: #0d47a1;
-        color: white;
-        border-radius: 8px;
-        transition: 0.3s;
+        background-color: #0d47a1; color: white; border-radius: 8px; transition: 0.3s;
     }
     div[data-testid="stDownloadButton"] button:hover {
-        background-color: #1565c0;
-        transform: scale(1.02);
+        background-color: #1565c0; transform: scale(1.02);
     }
-    section[data-testid="stSidebar"] {
-        background-color: #e3f2fd;
-    }
+    section[data-testid="stSidebar"] { background-color: #e3f2fd; }
     </style>
 """, unsafe_allow_html=True)
 
@@ -70,31 +39,41 @@ st.markdown("""
 # Judul
 # ======================
 st.title("📊 Gabung Data Excel/ODS + Visualisasi")
-st.caption("Versi dengan deteksi header otomatis + opsi manual")
+st.caption("Versi dengan deteksi header otomatis atau pilihan manual")
 
 # ======================
-# Fungsi Baca Data Otomatis
+# Fungsi bantu deteksi header otomatis
 # ======================
-def read_excel_auto_header(file, engine=None):
-    """
-    Membaca file Excel/ODS dengan deteksi header otomatis.
-    Jika gagal, mengembalikan None agar bisa ganti manual.
-    """
+def detect_best_header_row(file, engine=None, max_check=5):
+    """Deteksi baris header terbaik berdasarkan nilai unik & non-NaN terbanyak."""
+    best_row = 0
+    best_score = -1
     try:
-        df_test = pd.read_excel(file, engine=engine)
-        if df_test.columns.isnull().any() or df_test.columns.duplicated().any():
-            return None
-        else:
-            return df_test
+        for i in range(max_check):
+            df_temp = pd.read_excel(file, header=i, engine=engine)
+            # Hitung skor: banyak kolom unik & tidak NaN
+            unique_score = len(set([c for c in df_temp.columns if pd.notna(c)]))
+            nan_penalty = df_temp.columns.isnull().sum()
+            score = unique_score - nan_penalty
+            if score > best_score:
+                best_score = score
+                best_row = i
+        df_final = pd.read_excel(file, header=best_row, engine=engine)
+        return df_final, best_row
     except Exception:
-        return None
+        return None, None
 
 # ======================
-# Upload atau Folder
+# Pilihan mode unggah
 # ======================
 mode = st.radio("Pilih sumber data:", ["Upload File", "Pilih Folder"])
+header_mode = st.radio("Bagaimana membaca header?", ["Otomatis", "Manual"])
+
 data_frames = []
 
+# ======================
+# Upload file
+# ======================
 if mode == "Upload File":
     uploaded_files = st.file_uploader(
         "Upload file Excel/ODS (bisa banyak)",
@@ -104,76 +83,94 @@ if mode == "Upload File":
 
     if uploaded_files:
         for uploaded_file in uploaded_files:
-            # Coba baca otomatis
-            df_auto = None
-            try:
-                df_auto = read_excel_auto_header(uploaded_file, engine="openpyxl")
-            except:
-                df_auto = read_excel_auto_header(uploaded_file, engine="odf")
+            st.markdown(f"### 📄 {uploaded_file.name}")
+            df = None
+            header_row = None
 
-            if df_auto is not None:
-                df = df_auto
-            else:
-                st.warning(f"⚠️ Tidak dapat mendeteksi header otomatis untuk: {uploaded_file.name}")
-                # Tampilkan beberapa baris awal biar user bisa pilih header
+            if header_mode == "Otomatis":
+                # Deteksi header otomatis
                 try:
-                    preview = pd.read_excel(uploaded_file, header=None).head(5)
-                    st.write(f"Pratinjau awal file **{uploaded_file.name}**:")
-                    st.dataframe(preview)
+                    df, header_row = detect_best_header_row(uploaded_file, engine="openpyxl")
+                except:
+                    df, header_row = detect_best_header_row(uploaded_file, engine="odf")
 
-                    header_option = st.selectbox(
-                        f"Pilih baris header untuk {uploaded_file.name} (0 = tanpa header)",
-                        [0, 1, 2, 3, 4],
-                        help="Pilih baris yang terlihat berisi nama kolom"
-                    )
-
-                    if header_option == 0:
-                        df = pd.read_excel(uploaded_file, header=None)
-                    else:
-                        df = pd.read_excel(uploaded_file, header=header_option - 1)
-                except Exception as e:
-                    st.error(f"Gagal membaca file: {uploaded_file.name}, error: {e}")
+                if df is not None:
+                    st.success(f"✅ Header otomatis terdeteksi di baris ke-{header_row+1}")
+                else:
+                    st.warning("⚠️ Gagal mendeteksi header, coba manual")
                     continue
 
-            df["__FILE__"] = uploaded_file.name
-            data_frames.append(df)
+            else:  # Manual
+                try:
+                    preview = pd.read_excel(uploaded_file, header=None, nrows=5)
+                    st.write("Pratinjau 5 baris pertama:")
+                    st.dataframe(preview)
 
+                    header_row = st.selectbox(
+                        f"Pilih baris header untuk {uploaded_file.name} (0 = tanpa header)",
+                        list(range(0, 6)),
+                        help="0 berarti tanpa header"
+                    )
+
+                    if header_row == 0:
+                        df = pd.read_excel(uploaded_file, header=None)
+                    else:
+                        df = pd.read_excel(uploaded_file, header=header_row - 1)
+                except Exception as e:
+                    st.error(f"Gagal membaca file {uploaded_file.name}: {e}")
+                    continue
+
+            if df is not None:
+                df["__FILE__"] = uploaded_file.name
+                data_frames.append(df)
+
+# ======================
+# Mode Folder
+# ======================
 elif mode == "Pilih Folder":
     folder = st.text_input("Masukkan path folder (isi file .xlsx/.ods)")
-
     if folder and os.path.isdir(folder):
         for fname in os.listdir(folder):
             if fname.endswith((".xlsx", ".xls", ".ods")):
                 fpath = os.path.join(folder, fname)
-                df_auto = None
-                try:
-                    df_auto = read_excel_auto_header(fpath, engine="openpyxl")
-                except:
-                    df_auto = read_excel_auto_header(fpath, engine="odf")
+                st.markdown(f"### 📄 {fname}")
 
-                if df_auto is not None:
-                    df = df_auto
-                else:
-                    st.warning(f"⚠️ Header otomatis gagal untuk file: {fname}")
-                    preview = pd.read_excel(fpath, header=None).head(5)
-                    st.write(f"Pratinjau awal file **{fname}**:")
+                df = None
+                header_row = None
+
+                if header_mode == "Otomatis":
+                    try:
+                        df, header_row = detect_best_header_row(fpath, engine="openpyxl")
+                    except:
+                        df, header_row = detect_best_header_row(fpath, engine="odf")
+
+                    if df is not None:
+                        st.success(f"✅ Header otomatis terdeteksi di baris ke-{header_row+1}")
+                    else:
+                        st.warning(f"⚠️ Gagal mendeteksi header untuk {fname}")
+                        continue
+
+                else:  # Manual
+                    preview = pd.read_excel(fpath, header=None, nrows=5)
+                    st.write("Pratinjau 5 baris pertama:")
                     st.dataframe(preview)
 
-                    header_option = st.selectbox(
+                    header_row = st.selectbox(
                         f"Pilih baris header untuk {fname} (0 = tanpa header)",
-                        [0, 1, 2, 3, 4]
+                        list(range(0, 6))
                     )
 
-                    if header_option == 0:
+                    if header_row == 0:
                         df = pd.read_excel(fpath, header=None)
                     else:
-                        df = pd.read_excel(fpath, header=header_option - 1)
+                        df = pd.read_excel(fpath, header=header_row - 1)
 
-                df["__FILE__"] = fname
-                data_frames.append(df)
+                if df is not None:
+                    df["__FILE__"] = fname
+                    data_frames.append(df)
 
 # ======================
-# Gabung Data
+# Gabungkan Data
 # ======================
 if data_frames:
     data_gabungan = pd.concat(data_frames, ignore_index=True)
@@ -256,4 +253,4 @@ if data_frames:
             st.altair_chart(chart, use_container_width=True)
         except Exception as e:
             st.warning(f"⚠️ Terjadi error saat membuat grafik: {e}")
-                        
+        
