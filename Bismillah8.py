@@ -1,5 +1,6 @@
 import streamlit as st
 import pandas as pd
+import altair as alt
 import os
 
 # ======================
@@ -17,6 +18,7 @@ st.title("📑 Baca File Excel/ODS per Sheet dengan Opsi Header Otomatis atau Ma
 # Upload File
 # ======================
 uploaded_file = st.file_uploader("📂 Upload file Excel (.xlsx) atau ODS (.ods)", type=["xlsx", "xls", "ods"])
+data_frames = []  # Inisialisasi list kosong untuk menampung data tiap sheet
 
 if uploaded_file is not None:
     file_name = uploaded_file.name
@@ -25,10 +27,10 @@ if uploaded_file is not None:
     # Deteksi ekstensi file
     ext = os.path.splitext(file_name)[-1].lower()
 
-    # ======================
-    # Ambil semua sheet
-    # ======================
     try:
+        # ======================
+        # Ambil semua sheet
+        # ======================
         if ext == ".ods":
             sheets = pd.read_excel(uploaded_file, sheet_name=None, engine="odf")
         else:
@@ -49,11 +51,11 @@ if uploaded_file is not None:
             )
 
             if pilihan_header == "Otomatis":
-                # Coba deteksi header otomatis berdasarkan baris unik (tidak banyak NaN)
+                # Coba deteksi baris header otomatis
                 header_row = None
                 for i in range(min(10, len(sheet_data))):  # cek 10 baris pertama
                     non_null_ratio = sheet_data.iloc[i].notna().mean()
-                    if non_null_ratio > 0.7:  # kalau baris cukup lengkap
+                    if non_null_ratio > 0.7:
                         header_row = i
                         break
                 if header_row is None:
@@ -75,6 +77,9 @@ if uploaded_file is not None:
                 df = pd.read_excel(uploaded_file, sheet_name=sheet_name, header=header_row_manual - 1, engine="odf" if ext == ".ods" else None)
                 st.write(f"🧭 Header manual diambil dari baris ke-{header_row_manual}")
 
+            # Simpan dataframe ke daftar
+            data_frames.append(df)
+
             # =================
             # Tampilkan data
             # =================
@@ -85,7 +90,6 @@ if uploaded_file is not None:
 
 else:
     st.warning("⚠️ Silakan upload file Excel atau ODS terlebih dahulu.")
-
 
 # ======================
 # Gabungkan Data
@@ -150,6 +154,7 @@ if data_frames:
 
         try:
             tooltip_cols = [alt.Tooltip(str(c), type="nominal") for c in df_filtered.columns]
+
             if chart_type == "Diagram Batang":
                 chart = alt.Chart(df_filtered).mark_bar(color="#1976d2").encode(
                     x=alt.X(x_col, type="nominal"),
@@ -168,7 +173,9 @@ if data_frames:
                     y=alt.Y(y_col, type="quantitative"),
                     tooltip=tooltip_cols
                 )
+
             st.altair_chart(chart, use_container_width=True)
+
         except Exception as e:
             st.warning(f"⚠️ Terjadi error saat membuat grafik: {e}")
-        
+            
