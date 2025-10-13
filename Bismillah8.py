@@ -70,35 +70,29 @@ st.markdown("""
 # Judul
 # ======================
 st.title("📊 Gabung Data Excel/ODS + Visualisasi")
-st.caption("Versi dengan deteksi header otomatis")
+st.caption("Versi dengan deteksi header otomatis + opsi manual")
 
 # ======================
-# Fungsi Baca Data
+# Fungsi Baca Data Otomatis
 # ======================
 def read_excel_auto_header(file, engine=None):
     """
     Membaca file Excel/ODS dengan deteksi header otomatis.
-    Akan mencoba baris pertama sebagai header.
-    Jika gagal (semua kolom tidak unik / terlalu banyak NaN),
-    maka akan baca tanpa header.
+    Jika gagal, mengembalikan None agar bisa ganti manual.
     """
     try:
         df_test = pd.read_excel(file, engine=engine)
-        # Cek apakah baris pertama cocok jadi header
         if df_test.columns.isnull().any() or df_test.columns.duplicated().any():
-            df = pd.read_excel(file, header=None, engine=engine)
+            return None
         else:
-            df = df_test
+            return df_test
     except Exception:
-        # Jika gagal membaca normal, coba tanpa header
-        df = pd.read_excel(file, header=None, engine=engine)
-    return df
+        return None
 
 # ======================
 # Upload atau Folder
 # ======================
 mode = st.radio("Pilih sumber data:", ["Upload File", "Pilih Folder"])
-
 data_frames = []
 
 if mode == "Upload File":
@@ -110,19 +104,39 @@ if mode == "Upload File":
 
     if uploaded_files:
         for uploaded_file in uploaded_files:
+            # Coba baca otomatis
+            df_auto = None
             try:
-                sheets = pd.read_excel(uploaded_file, sheet_name=None, engine="openpyxl")
+                df_auto = read_excel_auto_header(uploaded_file, engine="openpyxl")
             except:
-                sheets = pd.read_excel(uploaded_file, sheet_name=None, engine="odf")
+                df_auto = read_excel_auto_header(uploaded_file, engine="odf")
 
-            for name, _ in sheets.items():
+            if df_auto is not None:
+                df = df_auto
+            else:
+                st.warning(f"⚠️ Tidak dapat mendeteksi header otomatis untuk: {uploaded_file.name}")
+                # Tampilkan beberapa baris awal biar user bisa pilih header
                 try:
-                    df = read_excel_auto_header(uploaded_file, engine="openpyxl")
-                except:
-                    df = read_excel_auto_header(uploaded_file, engine="odf")
-                df["__SHEET__"] = name
-                df["__FILE__"] = uploaded_file.name
-                data_frames.append(df)
+                    preview = pd.read_excel(uploaded_file, header=None).head(5)
+                    st.write(f"Pratinjau awal file **{uploaded_file.name}**:")
+                    st.dataframe(preview)
+
+                    header_option = st.selectbox(
+                        f"Pilih baris header untuk {uploaded_file.name} (0 = tanpa header)",
+                        [0, 1, 2, 3, 4],
+                        help="Pilih baris yang terlihat berisi nama kolom"
+                    )
+
+                    if header_option == 0:
+                        df = pd.read_excel(uploaded_file, header=None)
+                    else:
+                        df = pd.read_excel(uploaded_file, header=header_option - 1)
+                except Exception as e:
+                    st.error(f"Gagal membaca file: {uploaded_file.name}, error: {e}")
+                    continue
+
+            df["__FILE__"] = uploaded_file.name
+            data_frames.append(df)
 
 elif mode == "Pilih Folder":
     folder = st.text_input("Masukkan path folder (isi file .xlsx/.ods)")
@@ -131,15 +145,35 @@ elif mode == "Pilih Folder":
         for fname in os.listdir(folder):
             if fname.endswith((".xlsx", ".xls", ".ods")):
                 fpath = os.path.join(folder, fname)
+                df_auto = None
                 try:
-                    df = read_excel_auto_header(fpath, engine="openpyxl")
+                    df_auto = read_excel_auto_header(fpath, engine="openpyxl")
                 except:
-                    df = read_excel_auto_header(fpath, engine="odf")
+                    df_auto = read_excel_auto_header(fpath, engine="odf")
+
+                if df_auto is not None:
+                    df = df_auto
+                else:
+                    st.warning(f"⚠️ Header otomatis gagal untuk file: {fname}")
+                    preview = pd.read_excel(fpath, header=None).head(5)
+                    st.write(f"Pratinjau awal file **{fname}**:")
+                    st.dataframe(preview)
+
+                    header_option = st.selectbox(
+                        f"Pilih baris header untuk {fname} (0 = tanpa header)",
+                        [0, 1, 2, 3, 4]
+                    )
+
+                    if header_option == 0:
+                        df = pd.read_excel(fpath, header=None)
+                    else:
+                        df = pd.read_excel(fpath, header=header_option - 1)
+
                 df["__FILE__"] = fname
                 data_frames.append(df)
 
 # ======================
-# Gabungan Data
+# Gabung Data
 # ======================
 if data_frames:
     data_gabungan = pd.concat(data_frames, ignore_index=True)
@@ -222,4 +256,4 @@ if data_frames:
             st.altair_chart(chart, use_container_width=True)
         except Exception as e:
             st.warning(f"⚠️ Terjadi error saat membuat grafik: {e}")
-            
+                        
