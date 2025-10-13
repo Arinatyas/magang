@@ -4,16 +4,16 @@ import os
 import altair as alt
 
 # ======================
-# Konfigurasi Tampilan
+# Konfigurasi Tampilan (Tema)
 # ======================
 st.set_page_config(
-    page_title="📊 Gabung Data Excel/ODS + Visualisasi",
+    page_title="📊 Gabung Data + Visualisasi",
     page_icon="📈",
     layout="wide",
     initial_sidebar_state="collapsed"
 )
 
-# CSS Tema Biru Putih Elegan
+# CSS Kustom untuk tema biru putih elegan
 st.markdown("""
     <style>
     body { background-color: #f5f9ff; color: #0d1b2a; }
@@ -39,40 +39,79 @@ st.markdown("""
 # Judul
 # ======================
 st.title("📊 Gabung Data Excel/ODS + Visualisasi")
-st.caption("Versi dengan deteksi header otomatis atau pilihan manual")
+st.caption("Versi dengan deteksi header otomatis + opsi manual")
 
 # ======================
-# Fungsi bantu deteksi header otomatis
+# Fungsi Deteksi Header Otomatis
 # ======================
-def detect_best_header_row(file, engine=None, max_check=5):
-    """Deteksi baris header terbaik berdasarkan nilai unik & non-NaN terbanyak."""
-    best_row = 0
+def detect_header_row(df, max_rows=10):
+    """
+    Mendeteksi baris header paling mungkin berdasarkan skor kombinasi:
+    - Banyak sel tidak kosong
+    - Banyak nilai unik
+    - Banyak teks pendek
+    """
     best_score = -1
-    try:
-        for i in range(max_check):
-            df_temp = pd.read_excel(file, header=i, engine=engine)
-            # Hitung skor: banyak kolom unik & tidak NaN
-            unique_score = len(set([c for c in df_temp.columns if pd.notna(c)]))
-            nan_penalty = df_temp.columns.isnull().sum()
-            score = unique_score - nan_penalty
-            if score > best_score:
-                best_score = score
-                best_row = i
-        df_final = pd.read_excel(file, header=best_row, engine=engine)
-        return df_final, best_row
-    except Exception:
-        return None, None
+    best_row = 0
+
+    for i in range(min(max_rows, len(df))):
+        row = df.iloc[i]
+        non_empty = row.notna().sum()
+        unique_vals = row.nunique()
+        short_texts = sum(isinstance(v, str) and len(v) <= 20 for v in row)
+
+        score = (non_empty * 0.4) + (unique_vals * 0.4) + (short_texts * 0.2)
+        if score > best_score:
+            best_score = score
+            best_row = i
+
+    return best_row
 
 # ======================
-# Pilihan mode unggah
+# Pilihan sumber data
 # ======================
 mode = st.radio("Pilih sumber data:", ["Upload File", "Pilih Folder"])
-header_mode = st.radio("Bagaimana membaca header?", ["Otomatis", "Manual"])
+header_mode = st.radio("Metode pembacaan header:", ["Otomatis", "Manual"])
 
 data_frames = []
 
 # ======================
-# Upload file
+# Fungsi baca file dengan deteksi header
+# ======================
+def read_file_with_header(file_path_or_obj, file_name, header_mode):
+    try:
+        # baca tanpa header dulu
+        df_raw = pd.read_excel(file_path_or_obj, header=None, engine="openpyxl")
+    except:
+        df_raw = pd.read_excel(file_path_or_obj, header=None, engine="odf")
+
+    st.markdown(f"### 📄 {file_name}")
+    st.write("Pratinjau data awal:")
+    st.dataframe(df_raw.head(10))
+
+    if header_mode == "Otomatis":
+        best_row = detect_header_row(df_raw)
+        st.info(f"🧠 Deteksi otomatis: baris ke-{best_row + 1} kemungkinan besar adalah header.")
+        df = pd.read_excel(file_path_or_obj, header=best_row)
+        st.success(f"✅ Menggunakan header dari baris ke-{best_row + 1}")
+    else:
+        # Mode manual
+        st.write("📋 Pilih baris yang akan dijadikan header:")
+        header_row = st.number_input(f"Pilih baris header untuk {file_name}", min_value=0, max_value=10, value=0, step=1)
+        use_header = st.button(f"Gunakan baris ke-{header_row + 1} sebagai header untuk {file_name}")
+
+        if use_header:
+            df = pd.read_excel(file_path_or_obj, header=header_row)
+            st.success(f"✅ Menggunakan baris ke-{header_row + 1} sebagai header.")
+        else:
+            df = pd.read_excel(file_path_or_obj, header=None)
+            st.warning("⚠️ Belum memilih header — menggunakan tanpa header sementara.")
+
+    df["__FILE__"] = file_name
+    return df
+
+# ======================
+# Upload File
 # ======================
 if mode == "Upload File":
     uploaded_files = st.file_uploader(
@@ -83,46 +122,30 @@ if mode == "Upload File":
 
     if uploaded_files:
         for uploaded_file in uploaded_files:
-            st.markdown(f"### 📄 {uploaded_file.name}")
-            df = None
-            header_row = None
+            df = read_file_with_header(uploaded_file, uploaded_file.name, header_mode)
+            data_frames.append(df)
 
-            if header_mode == "Otomatis":
-                # Deteksi header otomatis
-                try:
-                    df, header_row = detect_best_header_row(uploaded_file, engine="openpyxl")
-                except:
-                    df, header_row = detect_best_header_row(uploaded_file, engine="odf")
-
-                if df is not None:
-                    st.success(f"✅ Header otomatis terdeteksi di baris ke-{header_row+1}")
-                else:
-                    st.warning("⚠️ Gagal mendeteksi header, coba manual")
-                    continue
-
-            else:  # Manual
-                try:
-                    preview = pd.read_excel(uploaded_file, header=None, nrows=5)
-                    st.write("Pratinjau 5 baris pertama:")
-                    st.dataframe(preview)
-
-                    header_row = st.selectbox(
-                        f"Pilih baris header untuk {uploaded_file.name} (0 = tanpa header)",
-                        list(range(0, 6)),
-                        help="0 berarti tanpa header"
-                    )
-
-                    if header_row == 0:
-                        df = pd.read_excel(uploaded_file, header=None)
-                    else:
-                        df = pd.read_excel(uploaded_file, header=header_row - 1)
-                except Exception as e:
-                    st.error(f"Gagal membaca file {uploaded_file.name}: {e}")
-                    continue
-
-            if df is not None:
-                df["__FILE__"] = uploaded_file.name
+# ======================
+# Pilih Folder
+# ======================
+elif mode == "Pilih Folder":
+    folder = st.text_input("Masukkan path folder (isi file .xlsx/.ods)")
+    if folder and os.path.isdir(folder):
+        for fname in os.listdir(folder):
+            if fname.endswith((".xlsx", ".xls", ".ods")):
+                fpath = os.path.join(folder, fname)
+                df = read_file_with_header(fpath, fname, header_mode)
                 data_frames.append(df)
+
+# ======================
+# Gabungkan Data
+# ======================
+if data_frames:
+    data_gabungan = pd.concat(data_frames, ignore_index=True)
+
+    st.subheader("📄 Data Gabungan")
+    st.dataframe(data_gabungan)
+
 
 # ======================
 # Mode Folder
