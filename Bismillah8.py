@@ -85,74 +85,7 @@ if uploaded_file is not None:
 
 else:
     st.warning("⚠️ Silakan upload file Excel atau ODS terlebih dahulu.")
-    
 
-# ======================
-# Pilih Folder
-# ======================
-elif mode == "Pilih Folder":
-    folder = st.text_input("Masukkan path folder (isi file .xlsx/.ods)")
-    if folder and os.path.isdir(folder):
-        for fname in os.listdir(folder):
-            if fname.endswith((".xlsx", ".xls", ".ods")):
-                fpath = os.path.join(folder, fname)
-                df = read_file_with_header(fpath, fname, header_mode)
-                data_frames.append(df)
-
-# ======================
-# Gabungkan Data
-# ======================
-if data_frames:
-    data_gabungan = pd.concat(data_frames, ignore_index=True)
-
-    st.subheader("📄 Data Gabungan")
-    st.dataframe(data_gabungan)
-
-
-# ======================
-# Mode Folder
-# ======================
-elif mode == "Pilih Folder":
-    folder = st.text_input("Masukkan path folder (isi file .xlsx/.ods)")
-    if folder and os.path.isdir(folder):
-        for fname in os.listdir(folder):
-            if fname.endswith((".xlsx", ".xls", ".ods")):
-                fpath = os.path.join(folder, fname)
-                st.markdown(f"### 📄 {fname}")
-
-                df = None
-                header_row = None
-
-                if header_mode == "Otomatis":
-                    try:
-                        df, header_row = detect_best_header_row(fpath, engine="openpyxl")
-                    except:
-                        df, header_row = detect_best_header_row(fpath, engine="odf")
-
-                    if df is not None:
-                        st.success(f"✅ Header otomatis terdeteksi di baris ke-{header_row+1}")
-                    else:
-                        st.warning(f"⚠️ Gagal mendeteksi header untuk {fname}")
-                        continue
-
-                else:  # Manual
-                    preview = pd.read_excel(fpath, header=None, nrows=5)
-                    st.write("Pratinjau 5 baris pertama:")
-                    st.dataframe(preview)
-
-                    header_row = st.selectbox(
-                        f"Pilih baris header untuk {fname} (0 = tanpa header)",
-                        list(range(0, 6))
-                    )
-
-                    if header_row == 0:
-                        df = pd.read_excel(fpath, header=None)
-                    else:
-                        df = pd.read_excel(fpath, header=header_row - 1)
-
-                if df is not None:
-                    df["__FILE__"] = fname
-                    data_frames.append(df)
 
 # ======================
 # Gabungkan Data
