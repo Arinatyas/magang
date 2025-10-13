@@ -82,9 +82,21 @@ else:
 # Gabung Data
 # ===============================
 if data_frames:
-    data_gabungan = pd.concat(data_frames, ignore_index=True)
+    # Pastikan semua kolom unik & konsisten
+    for i, df in enumerate(data_frames):
+        df.columns = df.columns.astype(str).str.strip()  # pastikan semua kolom string
+        df = df.loc[:, ~df.columns.duplicated()]  # hapus kolom duplikat
+        data_frames[i] = df  # update balik
+    
+    try:
+        data_gabungan = pd.concat(data_frames, ignore_index=True)
+    except Exception as e:
+        st.error(f"Gagal menggabungkan data: {e}")
+        st.stop()
+
     st.subheader("📄 Data Gabungan")
     st.dataframe(data_gabungan)
+
 
     # ===============================
     # Filter
