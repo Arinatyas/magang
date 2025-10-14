@@ -188,61 +188,70 @@ if data_frames:
         st.download_button("📥 Unduh ODS (.ods)", f, file_name=out_ods)
 
 # ======================
-# Visualisasi
+# Visualisasi Data
 # ======================
-# Sebelum visualisasi
-if 'filtered_df' not in locals():
-    filtered_df = pd.DataFrame()
-    st.subheader("📈 Visualisasi Data")
+if data_frames:  # Pastikan ada data
+    if 'filtered_df' not in locals():
+        filtered_df = data_gabungan.copy()  # Jika belum ada filter, gunakan data gabungan
 
-    # Bersihkan nama kolom
-    filtered_df.columns = [str(c).strip().replace(":", "_").replace(" ", "_") for c in filtered_df.columns]
-    all_cols = filtered_df.columns.tolist()
+    if not filtered_df.empty and len(filtered_df.columns) > 1:
+        st.subheader("📈 Visualisasi Data")
 
-    x_col = st.selectbox("Pilih kolom kategori (sumbu X)", all_cols)
-    y_col = st.selectbox("Pilih kolom numerik (sumbu Y)", [c for c in all_cols if c != x_col])
-    chart_type = st.radio("Pilih jenis grafik", ["Diagram Batang (Total)", "Diagram Garis (Total)", "Diagram Sebar"])
+        # Bersihkan nama kolom agar aman
+        filtered_df.columns = [str(c).strip().replace(":", "_").replace(" ", "_") for c in filtered_df.columns]
+        all_cols = filtered_df.columns.tolist()
 
-    df_filtered = filtered_df.dropna(subset=[x_col, y_col], how="any")
+        # Pilihan kolom X dan Y
+        x_col = st.selectbox("Pilih kolom kategori (sumbu X)", all_cols)
+        y_col = st.selectbox("Pilih kolom numerik (sumbu Y)", [c for c in all_cols if c != x_col])
+        chart_type = st.radio("Pilih jenis grafik", ["Diagram Batang (Total)", "Diagram Garis (Total)", "Diagram Sebar"])
 
-    try:
-        x_type = "quantitative" if pd.api.types.is_numeric_dtype(df_filtered[x_col]) else "nominal"
-        y_type = "quantitative"
+        # Drop NaN untuk kolom X dan Y
+        df_filtered = filtered_df.dropna(subset=[x_col, y_col], how="any")
 
-        df_filtered[y_col] = pd.to_numeric(df_filtered[y_col], errors="coerce")
+        try:
+            # Tentukan tipe data X dan Y
+            x_type = "quantitative" if pd.api.types.is_numeric_dtype(df_filtered[x_col]) else "nominal"
+            y_type = "quantitative"
 
-        if x_type == "nominal":
-            df_vis = df_filtered.groupby(x_col, as_index=False)[y_col].sum()
-            st.write("### 🔢 Preview Hasil Sum Sebelum Visualisasi")
-            st.dataframe(df_vis)
-        else:
-            df_vis = df_filtered.copy()
-            st.write("### 🔢 Preview Data yang Akan Divisualisasikan")
-            st.dataframe(df_vis[[x_col, y_col]])
+            # Konversi Y menjadi numerik
+            df_filtered[y_col] = pd.to_numeric(df_filtered[y_col], errors="coerce")
 
-        tooltip_cols = [alt.Tooltip(str(c), type="nominal") for c in df_vis.columns]
+            # Agregasi sum jika X kategori
+            if x_type == "nominal":
+                df_vis = df_filtered.groupby(x_col, as_index=False)[y_col].sum()
+                st.write("### 🔢 Preview Hasil Sum Sebelum Visualisasi")
+                st.dataframe(df_vis)
+            else:
+                df_vis = df_filtered.copy()
+                st.write("### 🔢 Preview Data yang Akan Divisualisasikan")
+                st.dataframe(df_vis[[x_col, y_col]])
 
-        if chart_type == "Diagram Batang (Total)":
-            chart = alt.Chart(df_vis).mark_bar(color="#1976d2").encode(
-                x=alt.X(x_col, type=x_type, title=x_col),
-                y=alt.Y(y_col, type=y_type, title=f"Total {y_col}"),
-                tooltip=tooltip_cols
-            )
-        elif chart_type == "Diagram Garis (Total)":
-            chart = alt.Chart(df_vis).mark_line(color="#0d47a1", point=True).encode(
-                x=alt.X(x_col, type=x_type, title=x_col),
-                y=alt.Y(y_col, type=y_type, title=f"Total {y_col}"),
-                tooltip=tooltip_cols
-            )
-        else:
-            chart = alt.Chart(df_vis).mark_circle(size=70, color="#42a5f5").encode(
-                x=alt.X(x_col, type=x_type),
-                y=alt.Y(y_col, type=y_type),
-                tooltip=tooltip_cols
-            )
+            # Tooltip untuk semua kolom
+            tooltip_cols = [alt.Tooltip(str(c), type="nominal") for c in df_vis.columns]
 
-        st.altair_chart(chart, use_container_width=True)
-        st.caption("🔢 Nilai numerik ditampilkan sebagai total per kategori (agregasi sum).")
+            # Buat chart sesuai pilihan
+            if chart_type == "Diagram Batang (Total)":
+                chart = alt.Chart(df_vis).mark_bar(color="#1976d2").encode(
+                    x=alt.X(x_col, type=x_type, title=x_col),
+                    y=alt.Y(y_col, type=y_type, title=f"Total {y_col}"),
+                    tooltip=tooltip_cols
+                )
+            elif chart_type == "Diagram Garis (Total)":
+                chart = alt.Chart(df_vis).mark_line(color="#0d47a1", point=True).encode(
+                    x=alt.X(x_col, type=x_type, title=x_col),
+                    y=alt.Y(y_col, type=y_type, title=f"Total {y_col}"),
+                    tooltip=tooltip_cols
+                )
+            else:  # Diagram Sebar
+                chart = alt.Chart(df_vis).mark_circle(size=70, color="#42a5f5").encode(
+                    x=alt.X(x_col, type=x_type),
+                    y=alt.Y(y_col, type=y_type),
+                    tooltip=tooltip_cols
+                )
 
-    except Exception as e:
-        st.warning(f"⚠️ Terjadi error saat membuat grafik: {e}")
+            st.altair_chart(chart, use_container_width=True)
+            st.caption("🔢 Nilai numerik ditampilkan sebagai total per kategori (agregasi sum).")
+
+        except Exception as e:
+            st.warning(f"⚠️ Terjadi error saat membuat grafik: {e}")
