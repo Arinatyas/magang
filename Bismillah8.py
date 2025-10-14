@@ -42,32 +42,55 @@ st.title("📊 Gabung Data Excel/ODS + Visualisasi")
 st.caption("Header otomatis/manual + nama sheet + filter + visualisasi")
 
 # ======================
-# Fungsi bantu deteksi header otomatis
+# Fungsi baca sheet dengan opsi header otomatis/manual
 # ======================
-def detect_best_header_row(file, engine=None, max_check=5):
-    """Deteksi baris header terbaik berdasarkan nilai unik & non-NaN terbanyak."""
-    best_row = 0
-    best_score = -1
-    try:
-        for i in range(max_check):
-            df_temp = pd.read_excel(file, header=i, engine=engine)
-            unique_score = len(set([c for c in df_temp.columns if pd.notna(c)]))
-            nan_penalty = df_temp.columns.isnull().sum()
-            score = unique_score - nan_penalty
-            if score > best_score:
-                best_score = score
-                best_row = i
-        df_final = pd.read_excel(file, header=best_row, engine=engine)
-        return df_final, best_row
-    except Exception:
-        return None, None
+def read_sheet_with_header_option(file_path, sheet_name=None, header_mode="Otomatis", max_preview=9):
+    """
+    Membaca sheet Excel/ODS dengan opsi header otomatis atau manual.
+    """
+    df = None
+    header_row = None
+
+    # Preview untuk manual
+    preview_df = pd.read_excel(file_path, sheet_name=sheet_name, header=None, nrows=max_preview)
+    
+    if header_mode == "Otomatis":
+        best_score = -1
+        for i in range(max_preview):
+            row_values = preview_df.iloc[i].astype(str)
+            unique_count = len(set(row_values)) - row_values.isin(['nan', 'None']).sum()
+            if unique_count > best_score:
+                best_score = unique_count
+                header_row = i
+        try:
+            df = pd.read_excel(file_path, sheet_name=sheet_name, header=header_row)
+            st.success(f"✅ Header otomatis terdeteksi di baris ke-{header_row+1} sheet {sheet_name if sheet_name else ''}")
+        except:
+            st.warning(f"⚠️ Gagal membaca sheet {sheet_name if sheet_name else ''} dengan header otomatis")
+            df = pd.read_excel(file_path, sheet_name=sheet_name, header=None)
+    else:
+        st.write("Pratinjau 9 baris pertama:")
+        st.dataframe(preview_df)
+        header_row = st.selectbox(
+            f"Pilih baris header untuk sheet {sheet_name if sheet_name else ''} (0 = tanpa header)",
+            list(range(0, max_preview))
+        )
+        try:
+            if header_row == 0:
+                df = pd.read_excel(file_path, sheet_name=sheet_name, header=None)
+            else:
+                df = pd.read_excel(file_path, sheet_name=sheet_name, header=header_row-1)
+        except:
+            st.warning(f"⚠️ Gagal membaca sheet {sheet_name if sheet_name else ''}")
+            df = pd.read_excel(file_path, sheet_name=sheet_name, header=None)
+
+    return df, header_row
 
 # ======================
 # Pilihan mode unggah
 # ======================
 mode = st.radio("Pilih sumber data:", ["Upload File", "Pilih Folder"])
 header_mode = st.radio("Bagaimana membaca header?", ["Otomatis", "Manual"])
-
 data_frames = []
 
 # ======================
@@ -79,53 +102,20 @@ if mode == "Upload File":
         type=["xlsx", "xls", "ods"],
         accept_multiple_files=True
     )
-
     if uploaded_files:
         for uploaded_file in uploaded_files:
             st.markdown(f"### 📄 {uploaded_file.name}")
             try:
-                # Baca semua sheet
                 try:
                     sheets = pd.read_excel(uploaded_file, sheet_name=None, engine="openpyxl")
                 except:
                     sheets = pd.read_excel(uploaded_file, sheet_name=None, engine="odf")
-                
                 for sheet_name, _ in sheets.items():
-                    df = None  # 🔹 RESET df setiap sheet
-
-                    # Header otomatis/manual
-                    if header_mode == "Otomatis":
-                        df, header_row = detect_best_header_row(uploaded_file, engine="openpyxl")
-                        if df is None:
-                            df, header_row = detect_best_header_row(uploaded_file, engine="odf")
-                        if df is None:
-                            st.warning(f"⚠️ Tidak bisa mendeteksi header untuk sheet {sheet_name}")
-                            continue
-                        st.success(f"✅ Header otomatis terdeteksi di baris ke-{header_row+1} sheet: {sheet_name}")
-
-                    else:  # Manual
-                        preview = pd.read_excel(uploaded_file, header=None, nrows=5)
-                        st.write("Pratinjau 5 baris pertama:")
-                        st.dataframe(preview)
-                        header_row = st.selectbox(
-                            f"Pilih baris header untuk {uploaded_file.name} sheet {sheet_name} (0 = tanpa header)",
-                            list(range(0, 6))
-                        )
-                        try:
-                            if header_row == 0:
-                                df = pd.read_excel(uploaded_file, header=None)
-                            else:
-                                df = pd.read_excel(uploaded_file, header=header_row - 1)
-                        except Exception as e:
-                            st.warning(f"⚠️ Gagal membaca sheet {sheet_name}: {e}")
-                            continue
-
-                    # Tambah info file & sheet
+                    df, header_row = read_sheet_with_header_option(uploaded_file, sheet_name, header_mode)
                     if df is not None:
                         df["__FILE__"] = uploaded_file.name
                         df["__SHEET__"] = sheet_name
                         data_frames.append(df)
-
             except Exception as e:
                 st.error(f"Gagal membaca file {uploaded_file.name}: {e}")
 
@@ -144,43 +134,12 @@ elif mode == "Pilih Folder":
                         sheets = pd.read_excel(fpath, sheet_name=None, engine="openpyxl")
                     except:
                         sheets = pd.read_excel(fpath, sheet_name=None, engine="odf")
-
                     for sheet_name, _ in sheets.items():
-                        df = None  # 🔹 RESET df setiap sheet
-
-                        # Header otomatis/manual
-                        if header_mode == "Otomatis":
-                            df, header_row = detect_best_header_row(fpath, engine="openpyxl")
-                            if df is None:
-                                df, header_row = detect_best_header_row(fpath, engine="odf")
-                            if df is None:
-                                st.warning(f"⚠️ Tidak bisa mendeteksi header untuk sheet {sheet_name}")
-                                continue
-                            st.success(f"✅ Header otomatis terdeteksi di baris ke-{header_row+1} sheet: {sheet_name}")
-
-                        else:  # Manual
-                            preview = pd.read_excel(fpath, header=None, nrows=5)
-                            st.write("Pratinjau 5 baris pertama:")
-                            st.dataframe(preview)
-                            header_row = st.selectbox(
-                                f"Pilih baris header untuk {fname} sheet {sheet_name} (0 = tanpa header)",
-                                list(range(0, 6))
-                            )
-                            try:
-                                if header_row == 0:
-                                    df = pd.read_excel(fpath, header=None)
-                                else:
-                                    df = pd.read_excel(fpath, header=header_row - 1)
-                            except Exception as e:
-                                st.warning(f"⚠️ Gagal membaca sheet {sheet_name}: {e}")
-                                continue
-
-                        # Tambah info file & sheet
+                        df, header_row = read_sheet_with_header_option(fpath, sheet_name, header_mode)
                         if df is not None:
                             df["__FILE__"] = fname
                             df["__SHEET__"] = sheet_name
                             data_frames.append(df)
-
                 except Exception as e:
                     st.error(f"Gagal membaca file {fname}: {e}")
 
@@ -189,7 +148,6 @@ elif mode == "Pilih Folder":
 # ======================
 if data_frames:
     data_gabungan = pd.concat(data_frames, ignore_index=True)
-
     st.subheader("📄 Data Gabungan")
     st.dataframe(data_gabungan)
 
@@ -226,7 +184,6 @@ if data_frames:
 
     with open(out_excel, "rb") as f:
         st.download_button("📥 Unduh Excel (.xlsx)", f, file_name=out_excel)
-
     with open(out_ods, "rb") as f:
         st.download_button("📥 Unduh ODS (.ods)", f, file_name=out_ods)
 
@@ -236,7 +193,7 @@ if data_frames:
     if not filtered_df.empty and len(filtered_df.columns) > 1:
         st.subheader("📈 Visualisasi Data")
 
-        # Bersihkan nama kolom agar aman
+        # Bersihkan nama kolom
         filtered_df.columns = [str(c).strip().replace(":", "_").replace(" ", "_") for c in filtered_df.columns]
         all_cols = filtered_df.columns.tolist()
 
@@ -247,14 +204,11 @@ if data_frames:
         df_filtered = filtered_df.dropna(subset=[x_col, y_col], how="any")
 
         try:
-            # Tentukan tipe data
             x_type = "quantitative" if pd.api.types.is_numeric_dtype(df_filtered[x_col]) else "nominal"
             y_type = "quantitative"
 
-            # Konversi nilai numerik
             df_filtered[y_col] = pd.to_numeric(df_filtered[y_col], errors="coerce")
 
-            # Jika x bukan numerik → agregasi total per kategori
             if x_type == "nominal":
                 df_vis = df_filtered.groupby(x_col, as_index=False)[y_col].sum()
             else:
@@ -262,24 +216,19 @@ if data_frames:
 
             tooltip_cols = [alt.Tooltip(str(c), type="nominal") for c in df_vis.columns]
 
-            # =====================
-            # Jenis Grafik
-            # =====================
             if chart_type == "Diagram Batang (Total)":
                 chart = alt.Chart(df_vis).mark_bar(color="#1976d2").encode(
                     x=alt.X(x_col, type=x_type, title=x_col),
                     y=alt.Y(y_col, type=y_type, title=f"Total {y_col}"),
                     tooltip=tooltip_cols
                 )
-
             elif chart_type == "Diagram Garis (Total)":
                 chart = alt.Chart(df_vis).mark_line(color="#0d47a1", point=True).encode(
                     x=alt.X(x_col, type=x_type, title=x_col),
                     y=alt.Y(y_col, type=y_type, title=f"Total {y_col}"),
                     tooltip=tooltip_cols
                 )
-
-            else:  # Diagram Sebar
+            else:
                 chart = alt.Chart(df_vis).mark_circle(size=70, color="#42a5f5").encode(
                     x=alt.X(x_col, type=x_type),
                     y=alt.Y(y_col, type=y_type),
@@ -288,6 +237,6 @@ if data_frames:
 
             st.altair_chart(chart, use_container_width=True)
             st.caption("🔢 Nilai numerik ditampilkan sebagai total per kategori (agregasi sum).")
-
         except Exception as e:
             st.warning(f"⚠️ Terjadi error saat membuat grafik: {e}")
+                    
