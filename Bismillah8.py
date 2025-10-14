@@ -190,7 +190,6 @@ if data_frames:
 # ======================
 # Visualisasi
 # ======================
-if not filtered_df.empty and len(filtered_df.columns) > 1:
     st.subheader("📈 Visualisasi Data")
 # Sebelum visualisasi
 if 'filtered_df' not in locals():
