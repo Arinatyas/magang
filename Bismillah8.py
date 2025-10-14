@@ -192,6 +192,9 @@ if data_frames:
 # ======================
 if not filtered_df.empty and len(filtered_df.columns) > 1:
     st.subheader("📈 Visualisasi Data")
+# Sebelum visualisasi
+if 'filtered_df' not in locals():
+    filtered_df = pd.DataFrame()
 
     # Bersihkan nama kolom
     filtered_df.columns = [str(c).strip().replace(":", "_").replace(" ", "_") for c in filtered_df.columns]
