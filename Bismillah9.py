@@ -188,129 +188,134 @@ if data_frames:
         st.download_button("📥 Unduh ODS (.ods)", f, file_name=out_ods)
 
 # ======================
-# VISUALISASI + PREVIEW
+# PREVIEW & VISUALISASI DATA
 # ======================
 if data_frames:
     st.subheader("📋 Preview & Visualisasi Data")
 
-    # Gunakan filtered_df atau data_gabungan
-    if 'filtered_df' not in locals() or filtered_df.empty:
-        filtered_df = data_gabungan.copy()
+    # Gabungkan semua data frame
+    data_gabungan = pd.concat(data_frames, ignore_index=True)
 
-    if not filtered_df.empty and len(filtered_df.columns) > 1:
-        # Tampilkan preview data utama (termasuk nama sheet)
-        st.write("### 🧾 Preview Awal Data (termasuk sheet_name jika ada)")
-        st.dataframe(filtered_df.head(20))
+    # Pastikan kolom identifikasi file dan sheet ada
+    if "__FILE__" not in data_gabungan.columns:
+        data_gabungan["__FILE__"] = "Tidak diketahui"
+    if "__SHEET__" not in data_gabungan.columns:
+        data_gabungan["__SHEET__"] = "Tidak diketahui"
 
-        # Pastikan sheet_name ikut ditampilkan (jika ada)
-        if "sheet_name" not in filtered_df.columns:
-            filtered_df["sheet_name"] = "Tidak diketahui"
+    # ======================
+    # Preview awal data
+    # ======================
+    st.write("### 🧾 Preview Awal Data (termasuk nama file dan sheet)")
+    st.dataframe(data_gabungan.head(20))
 
-        # Pilih kolom untuk filter lanjutan
-        st.write("### 🔍 Filter Lanjutan (Opsional)")
-        kolom_filter = st.selectbox(
-            "Pilih kolom untuk filter tambahan (opsional):",
-            ["(Tidak ada)"] + filtered_df.columns.tolist()
+    # ======================
+    # Filter lanjutan
+    # ======================
+    st.write("### 🔍 Filter Lanjutan (Opsional)")
+    kolom_filter = st.selectbox(
+        "Pilih kolom untuk filter tambahan (opsional):",
+        ["(Tidak ada)"] + data_gabungan.columns.tolist()
+    )
+
+    filtered_df = data_gabungan.copy()
+
+    if kolom_filter != "(Tidak ada)":
+        unique_values = filtered_df[kolom_filter].dropna().unique().tolist()
+        selected_values = st.multiselect(
+            f"Pilih nilai dari kolom '{kolom_filter}':",
+            options=unique_values,
+            default=unique_values[:3] if len(unique_values) > 3 else unique_values
         )
+        if selected_values:
+            filtered_df = filtered_df[filtered_df[kolom_filter].isin(selected_values)]
 
-        df_filtered_final = filtered_df.copy()
+    # ======================
+    # Preview setelah filter
+    # ======================
+    st.write("### 🧾 Preview Data Setelah Filter (20 baris pertama)")
+    st.dataframe(filtered_df.head(20))
 
-        if kolom_filter != "(Tidak ada)":
-            unique_values = df_filtered_final[kolom_filter].dropna().unique().tolist()
-            selected_values = st.multiselect(
-                f"Pilih nilai pada kolom '{kolom_filter}':",
-                options=unique_values,
-                default=unique_values[:3] if len(unique_values) > 3 else unique_values
+    # Tombol download preview hasil filter
+    csv_filtered = filtered_df.to_csv(index=False).encode('utf-8')
+    st.download_button(
+        label="💾 Download Preview (CSV)",
+        data=csv_filtered,
+        file_name="preview_filtered.csv",
+        mime="text/csv"
+    )
+
+    # ======================
+    # Visualisasi Data
+    # ======================
+    if not filtered_df.empty and len(filtered_df.columns) > 1:
+        st.write("---")
+        st.subheader("📈 Visualisasi Data")
+
+        # Bersihkan nama kolom agar aman
+        filtered_df.columns = [
+            str(c).strip().replace(":", "_").replace(" ", "_") for c in filtered_df.columns
+        ]
+        all_cols = filtered_df.columns.tolist()
+
+        # Pilihan kolom X dan Y
+        x_col = st.selectbox("Pilih kolom kategori (sumbu X)", all_cols)
+        y_col = st.selectbox("Pilih kolom numerik (sumbu Y)", [c for c in all_cols if c != x_col])
+        chart_type = st.radio("Pilih jenis grafik", ["Diagram Batang (Total)", "Diagram Garis (Total)", "Diagram Sebar"])
+
+        df_vis = filtered_df.dropna(subset=[x_col, y_col], how="any").copy()
+
+        try:
+            # Tentukan tipe data
+            x_type = "quantitative" if pd.api.types.is_numeric_dtype(df_vis[x_col]) else "nominal"
+            y_type = "quantitative"
+
+            # Konversi kolom Y ke numerik
+            df_vis[y_col] = pd.to_numeric(df_vis[y_col], errors="coerce")
+
+            # Agregasi jika X kategori
+            if x_type == "nominal":
+                df_agg = df_vis.groupby(x_col, as_index=False)[y_col].sum()
+                st.write("### 🔢 Preview Total per Kategori (setelah filter)")
+                st.dataframe(df_agg)
+            else:
+                df_agg = df_vis.copy()
+                st.write("### 🔢 Preview Data Numerik (setelah filter)")
+                st.dataframe(df_agg[[x_col, y_col]])
+
+            # Tombol download hasil agregasi
+            csv_agg = df_agg.to_csv(index=False).encode('utf-8')
+            st.download_button(
+                label="💾 Download Hasil Agregasi (CSV)",
+                data=csv_agg,
+                file_name="hasil_agregasi.csv",
+                mime="text/csv"
             )
 
-            if selected_values:
-                df_filtered_final = df_filtered_final[df_filtered_final[kolom_filter].isin(selected_values)]
+            # Tooltip semua kolom
+            tooltip_cols = [alt.Tooltip(str(c), type="nominal") for c in df_agg.columns]
 
-        st.write("### 🧾 Preview Data Setelah Filter (20 baris pertama)")
-        st.dataframe(df_filtered_final.head(20))
-
-        # Tombol download preview hasil filter
-        csv_download = df_filtered_final.to_csv(index=False).encode('utf-8')
-        st.download_button(
-            label="💾 Download Preview (CSV)",
-            data=csv_download,
-            file_name="preview_filtered.csv",
-            mime="text/csv"
-        )
-
-        # ================
-        # VISUALISASI DATA
-        # ================
-        if len(df_filtered_final.columns) > 1:
-            st.write("---")
-            st.subheader("📈 Visualisasi Data")
-
-            # Bersihkan nama kolom
-            df_filtered_final.columns = [
-                str(c).strip().replace(":", "_").replace(" ", "_")
-                for c in df_filtered_final.columns
-            ]
-            all_cols = df_filtered_final.columns.tolist()
-
-            # Pilihan X, Y, dan jenis grafik
-            x_col = st.selectbox("Pilih kolom kategori (sumbu X)", all_cols)
-            y_col = st.selectbox("Pilih kolom numerik (sumbu Y)", [c for c in all_cols if c != x_col])
-            chart_type = st.radio("Pilih jenis grafik", ["Diagram Batang (Total)", "Diagram Garis (Total)", "Diagram Sebar"])
-
-            df_vis = df_filtered_final.dropna(subset=[x_col, y_col], how="any").copy()
-
-            try:
-                # Tentukan tipe data
-                x_type = "quantitative" if pd.api.types.is_numeric_dtype(df_vis[x_col]) else "nominal"
-                y_type = "quantitative"
-
-                # Konversi Y menjadi numerik
-                df_vis[y_col] = pd.to_numeric(df_vis[y_col], errors="coerce")
-
-                # Agregasi jika X kategori
-                if x_type == "nominal":
-                    df_agg = df_vis.groupby(x_col, as_index=False)[y_col].sum()
-                    st.write("### 🔢 Preview Total per Kategori (setelah filter)")
-                    st.dataframe(df_agg)
-                else:
-                    df_agg = df_vis.copy()
-                    st.write("### 🔢 Preview Data Numerik (setelah filter)")
-                    st.dataframe(df_agg[[x_col, y_col]])
-
-                # Tombol download hasil agregasi
-                csv_agg = df_agg.to_csv(index=False).encode('utf-8')
-                st.download_button(
-                    label="💾 Download Hasil Agregasi (CSV)",
-                    data=csv_agg,
-                    file_name="hasil_agregasi.csv",
-                    mime="text/csv"
+            # Jenis grafik
+            if chart_type == "Diagram Batang (Total)":
+                chart = alt.Chart(df_agg).mark_bar(color="#1976d2").encode(
+                    x=alt.X(x_col, type=x_type, title=x_col),
+                    y=alt.Y(y_col, type=y_type, title=f"Total {y_col}"),
+                    tooltip=tooltip_cols
+                )
+            elif chart_type == "Diagram Garis (Total)":
+                chart = alt.Chart(df_agg).mark_line(color="#0d47a1", point=True).encode(
+                    x=alt.X(x_col, type=x_type, title=x_col),
+                    y=alt.Y(y_col, type=y_type, title=f"Total {y_col}"),
+                    tooltip=tooltip_cols
+                )
+            else:  # Diagram Sebar
+                chart = alt.Chart(df_agg).mark_circle(size=70, color="#42a5f5").encode(
+                    x=alt.X(x_col, type=x_type),
+                    y=alt.Y(y_col, type=y_type),
+                    tooltip=tooltip_cols
                 )
 
-                # Tooltip semua kolom
-                tooltip_cols = [alt.Tooltip(str(c), type="nominal") for c in df_agg.columns]
+            st.altair_chart(chart, use_container_width=True)
+            st.caption("🔢 Nilai numerik ditampilkan sebagai total per kategori (agregasi sum) setelah filter diterapkan.")
 
-                # Pilih tipe chart
-                if chart_type == "Diagram Batang (Total)":
-                    chart = alt.Chart(df_agg).mark_bar(color="#1976d2").encode(
-                        x=alt.X(x_col, type=x_type, title=x_col),
-                        y=alt.Y(y_col, type=y_type, title=f"Total {y_col}"),
-                        tooltip=tooltip_cols
-                    )
-                elif chart_type == "Diagram Garis (Total)":
-                    chart = alt.Chart(df_agg).mark_line(color="#0d47a1", point=True).encode(
-                        x=alt.X(x_col, type=x_type, title=x_col),
-                        y=alt.Y(y_col, type=y_type, title=f"Total {y_col}"),
-                        tooltip=tooltip_cols
-                    )
-                else:  # Diagram Sebar
-                    chart = alt.Chart(df_agg).mark_circle(size=70, color="#42a5f5").encode(
-                        x=alt.X(x_col, type=x_type),
-                        y=alt.Y(y_col, type=y_type),
-                        tooltip=tooltip_cols
-                    )
-
-                st.altair_chart(chart, use_container_width=True)
-                st.caption("🔢 Nilai numerik ditampilkan sebagai total per kategori (agregasi sum) setelah filter diterapkan.")
-
-            except Exception as e:
-                st.warning(f"⚠️ Terjadi error saat membuat grafik: {e}")
+        except Exception as e:
+            st.warning(f"⚠️ Terjadi error saat membuat grafik: {e}")
