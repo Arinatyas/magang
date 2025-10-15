@@ -194,8 +194,14 @@ if data_frames:
         data_gabungan["__SHEET__"] = "Tidak diketahui"
 
 # ======================
-# VISUALISASI DATA (VERSI LENGKAP & FLEKSIBEL)
 # ======================
+# VISUALISASI DATA (FIXED + DOWNLOAD EXCEL/ODS)
+# ======================
+from io import BytesIO
+from odf.opendocument import OpenDocumentSpreadsheet
+from odf.table import Table, TableRow, TableCell
+from odf.text import P
+
 if data_frames:
     if 'filtered_df' not in locals():
         filtered_df = data_gabungan.copy()
@@ -217,56 +223,92 @@ if data_frames:
             ["Diagram Batang", "Diagram Garis", "Diagram Sebar"]
         )
 
+        # Pastikan kolom tidak kosong
         df_vis = filtered_df.dropna(subset=[x_col, y_col], how="any").copy()
+
+        # Ganti string kosong jadi "Kosong"
+        df_vis[x_col] = df_vis[x_col].replace("", "Kosong")
+        df_vis[y_col] = df_vis[y_col].replace("", "Kosong")
 
         try:
             # Deteksi tipe data
             x_is_num = pd.api.types.is_numeric_dtype(df_vis[x_col])
             y_is_num = pd.api.types.is_numeric_dtype(df_vis[y_col])
 
-            # Konversi kolom ke numerik bila memungkinkan
-            df_vis[x_col] = pd.to_numeric(df_vis[x_col], errors="ignore")
-            df_vis[y_col] = pd.to_numeric(df_vis[y_col], errors="ignore")
-
-            # Agregasi berdasarkan kondisi kolom
+            # Agregasi fleksibel
             if not x_is_num and not y_is_num:
                 # Kedua kolom kategori → hitung jumlah kombinasi
-                df_agg = df_vis.groupby([x_col, y_col], as_index=False).size()
-                df_agg.rename(columns={"size": "Jumlah"}, inplace=True)
+                df_agg = df_vis.groupby([x_col, y_col], dropna=False).size().reset_index(name="Jumlah")
                 y_field = "Jumlah"
                 st.write("### 🔢 Jumlah Kombinasi per Kategori")
             elif not x_is_num and y_is_num:
                 # X kategori, Y numerik → jumlahkan
-                df_agg = df_vis.groupby(x_col, as_index=False)[y_col].sum()
+                df_agg = df_vis.groupby(x_col, dropna=False)[y_col].sum().reset_index()
                 y_field = y_col
                 st.write("### 🔢 Total per Kategori (Sum)")
             elif x_is_num and not y_is_num:
-                # X numerik, Y kategori → hitung jumlah kategori per nilai X
-                df_agg = df_vis.groupby([x_col, y_col], as_index=False).size()
-                df_agg.rename(columns={"size": "Jumlah"}, inplace=True)
+                # X numerik, Y kategori → hitung jumlah per kategori
+                df_agg = df_vis.groupby([x_col, y_col], dropna=False).size().reset_index(name="Jumlah")
                 y_field = "Jumlah"
                 st.write("### 🔢 Jumlah per Nilai Numerik")
             else:
-                # Dua-duanya numerik → tampilkan apa adanya
+                # Dua-duanya numerik → tampilkan tanpa agregasi
                 df_agg = df_vis[[x_col, y_col]].copy()
                 y_field = y_col
                 st.write("### 🔢 Data Numerik (tanpa agregasi)")
 
-            # Preview hasil agregasi
+            # Tampilkan hasil agregasi
             st.dataframe(df_agg)
 
-            # Download CSV hasil agregasi
+            # ========== DOWNLOAD HASIL AGREGASI ==========
+            # CSV
             csv_agg = df_agg.to_csv(index=False).encode('utf-8')
             st.download_button(
-                label="💾 Unduh Hasil Agregasi (CSV)",
+                label="💾 Unduh CSV (.csv)",
                 data=csv_agg,
                 file_name="hasil_agregasi.csv",
                 mime="text/csv"
             )
 
-            # Buat grafik Altair
-            tooltip_cols = [alt.Tooltip(str(c), type="nominal") for c in df_agg.columns]
+            # Excel
+            excel_buffer = BytesIO()
+            with pd.ExcelWriter(excel_buffer, engine='openpyxl') as writer:
+                df_agg.to_excel(writer, index=False, sheet_name="Hasil_Agregasi")
+            st.download_button(
+                label="📘 Unduh Excel (.xlsx)",
+                data=excel_buffer.getvalue(),
+                file_name="hasil_agregasi.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            )
 
+            # ODS
+            ods_doc = OpenDocumentSpreadsheet()
+            table = Table(name="Hasil_Agregasi")
+            header_row = TableRow()
+            for col in df_agg.columns:
+                cell = TableCell()
+                cell.addElement(P(text=str(col)))
+                header_row.addElement(cell)
+            table.addElement(header_row)
+            for _, row in df_agg.iterrows():
+                tr = TableRow()
+                for val in row:
+                    cell = TableCell()
+                    cell.addElement(P(text=str(val)))
+                    tr.addElement(cell)
+                table.addElement(tr)
+            ods_doc.spreadsheet.addElement(table)
+            ods_buf = BytesIO()
+            ods_doc.save(ods_buf)
+            st.download_button(
+                label="📗 Unduh ODS (.ods)",
+                data=ods_buf.getvalue(),
+                file_name="hasil_agregasi.ods",
+                mime="application/vnd.oasis.opendocument.spreadsheet"
+            )
+
+            # ========== VISUALISASI ==========
+            tooltip_cols = [alt.Tooltip(str(c), type="nominal") for c in df_agg.columns]
             if chart_type == "Diagram Batang":
                 chart = alt.Chart(df_agg).mark_bar(color="#1976d2").encode(
                     x=alt.X(x_col, title=x_col),
@@ -286,7 +328,6 @@ if data_frames:
                     tooltip=tooltip_cols
                 )
 
-            # Tampilkan grafik
             st.altair_chart(chart, use_container_width=True)
             st.caption("📊 Visualisasi otomatis menyesuaikan jenis data kategori atau numerik.")
 
