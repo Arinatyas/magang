@@ -187,11 +187,7 @@ if data_frames:
     with open(out_ods, "rb") as f:
         st.download_button("📥 Unduh ODS (.ods)", f, file_name=out_ods)
 
-    # Pastikan kolom identifikasi file dan sheet ada
-    if "__FILE__" not in data_gabungan.columns:
-        data_gabungan["__FILE__"] = "Tidak diketahui"
-    if "__SHEET__" not in data_gabungan.columns:
-        data_gabungan["__SHEET__"] = "Tidak diketahui"
+
 
 # ======================
 # ======================
@@ -205,7 +201,11 @@ from odf.text import P
 if data_frames:
     if 'filtered_df' not in locals():
         filtered_df = data_gabungan.copy()
-
+    # Pastikan kolom identifikasi file dan sheet ada
+    if "__FILE__" not in data_gabungan.columns:
+        data_gabungan["__FILE__"] = "Tidak diketahui"
+    if "__SHEET__" not in data_gabungan.columns:
+        data_gabungan["__SHEET__"] = "Tidak diketahui"
     if not filtered_df.empty and len(filtered_df.columns) > 1:
         st.subheader("📈 Visualisasi Data")
 
