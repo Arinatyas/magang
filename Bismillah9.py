@@ -89,7 +89,7 @@ def read_sheet_with_header_option(file_path, sheet_name=None, header_mode="Otoma
 # ======================
 # Pilihan mode unggah
 # ======================
-mode = st.radio("Pilih sumber data:", ["Upload File", "Pilih Folder"])
+mode = st.radio("Pilih sumber data:", ["Upload File"])
 header_mode = st.radio("Bagaimana membaca header?", ["Otomatis", "Manual"])
 data_frames = []
 
@@ -119,29 +119,6 @@ if mode == "Upload File":
             except Exception as e:
                 st.error(f"Gagal membaca file {uploaded_file.name}: {e}")
 
-# ======================
-# Mode Pilih Folder
-# ======================
-elif mode == "Pilih Folder":
-    folder = st.text_input("Masukkan path folder (isi file .xlsx/.ods)")
-    if folder and os.path.isdir(folder):
-        for fname in os.listdir(folder):
-            if fname.endswith((".xlsx", ".xls", ".ods")):
-                fpath = os.path.join(folder, fname)
-                st.markdown(f"### 📄 {fname}")
-                try:
-                    try:
-                        sheets = pd.read_excel(fpath, sheet_name=None, engine="openpyxl")
-                    except:
-                        sheets = pd.read_excel(fpath, sheet_name=None, engine="odf")
-                    for sheet_name, _ in sheets.items():
-                        df, header_row = read_sheet_with_header_option(fpath, sheet_name, header_mode)
-                        if df is not None:
-                            df["__FILE__"] = fname
-                            df["__SHEET__"] = sheet_name
-                            data_frames.append(df)
-                except Exception as e:
-                    st.error(f"Gagal membaca file {fname}: {e}")
 
 # ======================
 # Gabungkan Data
