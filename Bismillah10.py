@@ -93,27 +93,7 @@ mode = st.radio("Pilih sumber data:", ["Upload File"])
 header_mode = st.radio("Bagaimana membaca header?", ["Otomatis", "Manual"])
 data_frames = []
 
-
-
 # ======================
-# Gabungkan Data
-# ======================
-if data_frames:
-    data_gabungan = pd.concat(data_frames, ignore_index=True)
-    st.subheader("📄 Data Gabungan")
-    st.dataframe(data_gabungan)
-
-    # ======================
-    # Filter Data
-    # ======================
-    st.subheader("🔍 Penyaringan Data")
-    filter_columns = st.multiselect("Pilih kolom untuk filter", data_gabungan.columns)
-
-    filtered_df = data_gabungan.copy()
-    tampilkan_kolom = []
-
-    for kol in filter_columns:
-        unique_vals = filtered_df[kol].dropna().unique().# ======================
 # Mode Upload File (FLEKSIBEL)
 # ======================
 def load_sheets_any_format(uploaded_file):
@@ -167,7 +147,28 @@ if mode == "Upload File":
                         df["__FILE__"] = uploaded_file.name
                         df["__SHEET__"] = sheet_name
                         data_frames.append(df)
-tolist()
+
+
+
+# ======================
+# Gabungkan Data
+# ======================
+if data_frames:
+    data_gabungan = pd.concat(data_frames, ignore_index=True)
+    st.subheader("📄 Data Gabungan")
+    st.dataframe(data_gabungan)
+
+    # ======================
+    # Filter Data
+    # ======================
+    st.subheader("🔍 Penyaringan Data")
+    filter_columns = st.multiselect("Pilih kolom untuk filter", data_gabungan.columns)
+
+    filtered_df = data_gabungan.copy()
+    tampilkan_kolom = []
+
+    for kol in filter_columns:
+        unique_vals = filtered_df[kol].dropna().unique().tolist()
         pilihan = st.multiselect(f"Pilih nilai untuk {kol}", unique_vals)
         tampilkan_kolom.append(kol)
         if pilihan:
