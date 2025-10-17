@@ -109,8 +109,25 @@ if data_frames:
     st.subheader("🔍 Penyaringan Data")
     filter_columns = st.multiselect("Pilih kolom untuk filter", data_gabungan.columns)
 
+    # Jika tidak ada filter, tetap buat filtered_df agar tidak error
     filtered_df = data_gabungan.copy()
     tampilkan_kolom = []
+
+    if filter_columns:
+        for kol in filter_columns:
+            unique_vals = filtered_df[kol].dropna().unique().tolist()
+            pilihan = st.multiselect(f"Pilih nilai untuk {kol}", unique_vals)
+            tampilkan_kolom.append(kol)
+            if pilihan:
+                filtered_df = filtered_df[filtered_df[kol].isin(pilihan)]
+
+        # Jika user hanya ingin melihat kolom yang difilter
+        if tampilkan_kolom:
+            filtered_df = filtered_df[tampilkan_kolom]
+
+    st.write("### Data Setelah Penyaringan")
+    st.dataframe(filtered_df)
+
 
 
     for kol in filter_columns:
