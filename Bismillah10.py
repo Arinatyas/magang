@@ -214,32 +214,48 @@ if mode == "Upload File":
                     data_frames.append(df)
 
 # ======================
-# Unduh Data
+# 💾 Unduh Data Aman (Fix NameError)
 # ======================
 st.subheader("💾 Unduh Data")
 
-# Pastikan filtered_df sudah ada
-if 'filtered_df' not in locals() or filtered_df is None:
-    if 'data_gabungan' in locals():
-        filtered_df = data_gabungan.copy()
-    else:
-        st.warning("⚠️ Tidak ada data untuk diunduh.")
+# Buat fallback data agar tidak error
+try:
+    # Jika filtered_df belum ada, gunakan data_gabungan
+    if 'filtered_df' not in locals() or filtered_df is None:
+        if 'data_gabungan' in locals() and not data_gabungan.empty:
+            filtered_df = data_gabungan.copy()
+        else:
+            st.warning("⚠️ Tidak ada data untuk diunduh.")
+            st.stop()
+
+    # Pastikan dataframe tidak kosong
+    if filtered_df.empty:
+        st.warning("⚠️ Data kosong, tidak bisa diunduh.")
         st.stop()
 
-# Simpan Excel dan ODS
-out_excel = "data_gabungan.xlsx"
-out_ods = "data_gabungan.ods"
+    # Simpan Excel dan ODS
+    out_excel = "data_gabungan.xlsx"
+    out_ods = "data_gabungan.ods"
 
-try:
     filtered_df.to_excel(out_excel, index=False, engine="openpyxl")
-    filtered_df.to_excel(out_ods, index=False, engine="odf")
+
+    # Coba simpan ke ODS, fallback otomatis jika gagal
+    try:
+        filtered_df.to_excel(out_ods, index=False, engine="odf")
+    except Exception as e:
+        st.info("ℹ️ Format ODS gagal disimpan, diganti otomatis ke Excel.")
+        out_ods = None  # tandai gagal
 
     with open(out_excel, "rb") as f:
         st.download_button("📥 Unduh Excel (.xlsx)", f, file_name=out_excel)
-    with open(out_ods, "rb") as f:
-        st.download_button("📥 Unduh ODS (.ods)", f, file_name=out_ods)
+
+    if out_ods:
+        with open(out_ods, "rb") as f:
+            st.download_button("📥 Unduh ODS (.ods)", f, file_name=out_ods)
+
 except Exception as e:
-    st.error(f"❌ Gagal membuat file unduhan: {e}")
+    st.error(f"❌ Terjadi error saat proses unduh: {e}")
+
 
 # ======================
 # ======================
