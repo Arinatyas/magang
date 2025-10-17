@@ -112,6 +112,7 @@ if data_frames:
     filtered_df = data_gabungan.copy()
     tampilkan_kolom = []
 
+
     for kol in filter_columns:
         unique_vals = filtered_df[kol].dropna().unique().tolist()
         pilihan = st.multiselect(f"Pilih nilai untuk {kol}", unique_vals)
