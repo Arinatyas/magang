@@ -143,9 +143,8 @@ if data_frames:
     st.write("### Data Setelah Penyaringan")
     st.dataframe(filtered_df)
 
-    # ======================
-    # Unduh Data
-    # =====================# ======================
+
+# ======================
 # Mode Upload File
 # ======================
 def load_sheets_any_format(uploaded_file):
@@ -214,9 +213,24 @@ if mode == "Upload File":
                     df["__SHEET__"] = sheet_name
                     data_frames.append(df)
 
-    st.subheader("💾 Unduh Data")
-    out_excel = "data_gabungan.xlsx"
-    out_ods = "data_gabungan.ods"
+# ======================
+# Unduh Data
+# ======================
+st.subheader("💾 Unduh Data")
+
+# Pastikan filtered_df sudah ada
+if 'filtered_df' not in locals() or filtered_df is None:
+    if 'data_gabungan' in locals():
+        filtered_df = data_gabungan.copy()
+    else:
+        st.warning("⚠️ Tidak ada data untuk diunduh.")
+        st.stop()
+
+# Simpan Excel dan ODS
+out_excel = "data_gabungan.xlsx"
+out_ods = "data_gabungan.ods"
+
+try:
     filtered_df.to_excel(out_excel, index=False, engine="openpyxl")
     filtered_df.to_excel(out_ods, index=False, engine="odf")
 
@@ -224,6 +238,8 @@ if mode == "Upload File":
         st.download_button("📥 Unduh Excel (.xlsx)", f, file_name=out_excel)
     with open(out_ods, "rb") as f:
         st.download_button("📥 Unduh ODS (.ods)", f, file_name=out_ods)
+except Exception as e:
+    st.error(f"❌ Gagal membuat file unduhan: {e}")
 
 # ======================
 # ======================
