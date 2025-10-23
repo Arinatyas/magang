@@ -201,23 +201,16 @@ if mode == "Upload File":
                     if col not in df.columns:
                         df[col] = None
                 aligned_frames.append(df[all_columns])
-
-            # Gabungkan semua data
-            data_gabungan = pd.concat(aligned_frames, ignore_index=True)
-
-            st.subheader("📄 Data Gabungan (Header Otomatis & Diseragamkan)")
-            st.dataframe(data_gabungan)
-
-            # Simpan agar bisa dipakai tahap berikutnya
-            st.session_state["data_gabungan"] = data_gabungan            
+        
 
 # ======================
 # Gabungkan Data
 # ======================
 if data_frames:
-    data_gabungan = pd.concat(data_frames, ignore_index=True)
+    data_gabungan = pd.concat(data_frames, ignore_index=True, axis=0)
     st.subheader("📄 Data Gabungan")
     st.dataframe(data_gabungan)
+    st.session_state["data_gabungan"] = data_gabungan
 
     # ======================
     # Filter Data
