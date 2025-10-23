@@ -176,7 +176,6 @@ if mode == "Upload File":
             for i in range(len(data_frames)):
                 data_frames[i].columns = col_names
     
-        if data_frames:
             data_gabungan = pd.concat(data_frames, ignore_index=True)
             st.subheader("📄 Data Gabungan (berdasarkan urutan kolom, bukan header)")
             st.dataframe(data_gabungan)
