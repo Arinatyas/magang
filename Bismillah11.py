@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import os
 import altair as alt
+import re 
 
 # ======================
 # Konfigurasi Tampilan
@@ -157,32 +158,58 @@ if mode == "Upload File":
                         best_score = -1
                         for i in range(len(preview_df)):
                             row_values = preview_df.iloc[i].astype(str)
-                            unique_vals = len(set(row_values)) - row_values.isin(['nan', 'None']).sum()
+                            unique_vals = len(set(row_values)) - row_values.isin(['nan', 'None', '']).sum()
                             if unique_vals > best_score:
                                 best_score = unique_vals
                                 best_row = i
 
-                        # Baca ulang sheet dengan baris header terbaik
+                        # Baca ulang sheet dengan header terbaik
                         df = pd.read_excel(uploaded_file, sheet_name=sheet_name, header=best_row)
-                        st.success(f"✅ Header otomatis terdeteksi di baris ke-{best_row+1} untuk {sheet_name}")
+                        st.success(f"✅ Header otomatis di baris ke-{best_row+1} untuk {sheet_name}")
 
                     except Exception as e:
                         st.warning(f"⚠️ Gagal mendeteksi header untuk {sheet_name} ({e}), baca tanpa header.")
                         df = pd.read_excel(uploaded_file, sheet_name=sheet_name, header=None)
 
-                    # Tambahkan kolom identifikasi file dan sheet
+                    # 🔹 Tambahkan metadata file & sheet
                     df["__FILE__"] = uploaded_file.name
                     df["__SHEET__"] = sheet_name
 
+                    # 🔹 Normalisasi nama kolom
+                    def normalize_col(col):
+                        if not isinstance(col, str):
+                            col = str(col)
+                        col = col.strip().lower()
+                        col = re.sub(r"[^a-z0-9]+", "_", col)  # ganti spasi/simbol jadi _
+                        return col
+
+                    df.columns = [normalize_col(c) for c in df.columns]
+
                     data_frames.append(df)
 
-        # 🔹 Gabungkan semua data berdasarkan nama kolom (union)
+        # ==========================
+        # 🔹 GABUNG BERDASARKAN NAMA KOLOM
+        # ==========================
         if data_frames:
-            data_gabungan = pd.concat(data_frames, ignore_index=True, sort=False)
-            st.subheader("📄 Data Gabungan (berdasarkan nama kolom, header otomatis)")
-            st.dataframe(data_gabungan)
-            
+            # Dapatkan semua kolom unik (union)
+            all_columns = sorted(set().union(*(df.columns for df in data_frames)))
 
+            # Samakan semua DataFrame supaya punya kolom lengkap
+            aligned_frames = []
+            for df in data_frames:
+                for col in all_columns:
+                    if col not in df.columns:
+                        df[col] = None
+                aligned_frames.append(df[all_columns])
+
+            # Gabungkan semua data
+            data_gabungan = pd.concat(aligned_frames, ignore_index=True)
+
+            st.subheader("📄 Data Gabungan (Header Otomatis & Diseragamkan)")
+            st.dataframe(data_gabungan)
+
+            # Simpan agar bisa dipakai tahap berikutnya
+            st.session_state["data_gabungan"] = data_gabungan            
 
 # ======================
 # Gabungkan Data
