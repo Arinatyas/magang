@@ -173,34 +173,7 @@ if mode == "Upload File":
 
                     # 🔹 Tambahkan metadata file & sheet
                     df["__FILE__"] = uploaded_file.name
-                    df["__SHEET__"] = sheet_name
-
-                    # 🔹 Normalisasi nama kolom
-                    def normalize_col(col):
-                        if not isinstance(col, str):
-                            col = str(col)
-                        col = col.strip().lower()
-                        col = re.sub(r"[^a-z0-9]+", "_", col)  # ganti spasi/simbol jadi _
-                        return col
-
-                    df.columns = [normalize_col(c) for c in df.columns]
-
-                    data_frames.append(df)
-
-        # ==========================
-        # 🔹 GABUNG BERDASARKAN NAMA KOLOM
-        # ==========================
-        if data_frames:
-            # Dapatkan semua kolom unik (union)
-            all_columns = sorted(set().union(*(df.columns for df in data_frames)))
-
-            # Samakan semua DataFrame supaya punya kolom lengkap
-            aligned_frames = []
-            for df in data_frames:
-                for col in all_columns:
-                    if col not in df.columns:
-                        df[col] = None
-                aligned_frames.append(df[all_columns])
+                    df["__SHEET__"] = sheet_name0
         
 
 # ======================
