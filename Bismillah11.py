@@ -175,11 +175,13 @@ if mode == "Upload File":
             col_names = [f"Kolom_{i+1}" for i in range(max_cols)] + ["__FILE__", "__SHEET__"]
             for i in range(len(data_frames)):
                 data_frames[i].columns = col_names
-
-            data_gabungan = pd.concat(data_frames, ignore_index=True)
+    
+        if data_frames:
+            data_gabungan = pd.concat(data_frames, ignore_index=True)
             st.subheader("📄 Data Gabungan (berdasarkan urutan kolom, bukan header)")
             st.dataframe(data_gabungan)
 
+            
     # ======================
     # Filter Data
     # ======================
@@ -196,7 +198,7 @@ if mode == "Upload File":
         if pilihan:
             filtered_df = filtered_df[filtered_df[kol].isin(pilihan)]
 
-    if tampilkan_kolom:
+    if tampilkan_kolom: 
         filtered_df = filtered_df[tampilkan_kolom]
 
     st.write("### Data Setelah Penyaringan")
