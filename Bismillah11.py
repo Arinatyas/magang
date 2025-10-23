@@ -122,15 +122,7 @@ def load_sheets_any_format(uploaded_file):
             return {"Sheet1": df}
 
         # 4️⃣ Fallback umum
-        else:
-            uploaded_file.seek(0)
-            return pd.read_excel(uploaded_file, sheet_name=None)
-    except Exception as e:
-        st.error(f"❌ Gagal membaca {uploaded_file.name}: {e}")
-        return None
-
-
-if mode == "Upload File":
+ if mode == "Upload File":
     uploaded_files = st.file_uploader(
         "Upload file Excel/ODS (bisa banyak)",
         type=["xlsx", "xls", "ods", "csv"],
@@ -143,44 +135,42 @@ if mode == "Upload File":
             sheets = load_sheets_any_format(uploaded_file)
             if sheets:
                 for sheet_name, df_raw in sheets.items():
-                    # Baca tanpa header (anggap semua baris data)
                     try:
-                        df_no_header = pd.read_excel(uploaded_file, sheet_name=sheet_name, header=None)
+                        # 🔹 Deteksi otomatis header
+                        preview_df = pd.read_excel(uploaded_file, sheet_name=sheet_name, header=None, nrows=10)
+                        best_row = 0
+                        best_score = -1
+                        for i in range(len(preview_df)):
+                            row_values = preview_df.iloc[i].astype(str)
+                            unique_vals = len(set(row_values)) - row_values.isin(['nan', 'None']).sum()
+                            if unique_vals > best_score:
+                                best_score = unique_vals
+                                best_row = i
+                        # Baca ulang sheet dengan baris header terbaik
+                        df = pd.read_excel(uploaded_file, sheet_name=sheet_name, header=best_row)
+                        st.success(f"✅ Header otomatis terdeteksi di baris ke-{best_row+1} untuk {sheet_name}")
+
                     except Exception as e:
-                        st.warning(f"Gagal membaca {sheet_name} dari {uploaded_file.name}: {e}")
-                        continue
+                        st.warning(f"⚠️ Gagal mendeteksi header untuk {sheet_name} ({e}), baca tanpa header.")
+                        df = pd.read_excel(uploaded_file, sheet_name=sheet_name, header=None)
 
                     # Tambahkan kolom identifikasi file dan sheet
-                    df_no_header["__FILE__"] = uploaded_file.name
-                    df_no_header["__SHEET__"] = sheet_name
+                    df["__FILE__"] = uploaded_file.name
+                    df["__SHEET__"] = sheet_name
 
-                    data_frames.append(df_no_header)
+                    data_frames.append(df)
 
-        # Setelah semua sheet terbaca
+        # 🔹 Gabungkan semua data berdasarkan nama kolom (union)
         if data_frames:
-            # Cari jumlah kolom terbanyak
-            max_cols = max(df.shape[1] - 2 for df in data_frames)  # -2 karena __FILE__ & __SHEET__
-            
-            # Samakan jumlah kolom antar dataframe
-            for i in range(len(data_frames)):
-                df = data_frames[i]
-                data_cols = df.shape[1] - 2  # tanpa kolom tambahan
-                if data_cols < max_cols:
-                    # Tambahkan kolom kosong jika kurang
-                    for j in range(data_cols + 1, max_cols + 1):
-                        df[f"Kolom_{j}"] = None
-                    data_frames[i] = df
-
-            # Ubah nama kolom semua dataframe jadi seragam
-            col_names = [f"Kolom_{i+1}" for i in range(max_cols)] + ["__FILE__", "__SHEET__"]
-            for i in range(len(data_frames)):
-                data_frames[i].columns = col_names
-
-            data_gabungan = pd.concat(data_frames, ignore_index=True)
-            st.subheader("📄 Data Gabungan (berdasarkan urutan kolom, bukan header)")
+            data_gabungan = pd.concat(data_frames, ignore_index=True, sort=False)
+            st.subheader("📄 Data Gabungan (berdasarkan nama kolom, header otomatis)")
             st.dataframe(data_gabungan)
-
-
+       else:
+            uploaded_file.seek(0)
+            return pd.read_excel(uploaded_file, sheet_name=None)
+    except Exception as e:
+        st.error(f"❌ Gagal membaca {uploaded_file.name}: {e}")
+        return None
 
 
 # ======================
