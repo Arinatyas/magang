@@ -53,7 +53,7 @@ def read_sheet_with_header_option(file_path, sheet_name=None, header_mode="Otoma
 
     # Preview untuk manual
     preview_df = pd.read_excel(file_path, sheet_name=sheet_name, header=None, nrows=max_preview)
-    
+
     if header_mode == "Otomatis":
         best_score = -1
         for i in range(max_preview):
@@ -86,6 +86,7 @@ def read_sheet_with_header_option(file_path, sheet_name=None, header_mode="Otoma
 
     return df, header_row
 
+
 # ======================
 # Pilihan mode unggah
 # ======================
@@ -93,8 +94,9 @@ mode = st.radio("Pilih sumber data:", ["Upload File"])
 header_mode = st.radio("Bagaimana membaca header?", ["Otomatis", "Manual"])
 data_frames = []
 
+
 # ======================
-# Mode Upload File (FLEKSIBEL)
+# Fungsi bantu baca file format apa pun
 # ======================
 def load_sheets_any_format(uploaded_file):
     """Membaca file Excel/ODS/CSV secara otomatis, meski formatnya tertukar."""
@@ -122,7 +124,19 @@ def load_sheets_any_format(uploaded_file):
             return {"Sheet1": df}
 
         # 4️⃣ Fallback umum
- if mode == "Upload File":
+        else:
+            uploaded_file.seek(0)
+            return pd.read_excel(uploaded_file, sheet_name=None)
+
+    except Exception as e:
+        st.error(f"❌ Gagal membaca {uploaded_file.name}: {e}")
+        return None
+
+
+# ======================
+# Mode Upload File
+# ======================
+if mode == "Upload File":
     uploaded_files = st.file_uploader(
         "Upload file Excel/ODS (bisa banyak)",
         type=["xlsx", "xls", "ods", "csv"],
@@ -133,6 +147,7 @@ def load_sheets_any_format(uploaded_file):
         for uploaded_file in uploaded_files:
             st.markdown(f"### 📄 {uploaded_file.name}")
             sheets = load_sheets_any_format(uploaded_file)
+
             if sheets:
                 for sheet_name, df_raw in sheets.items():
                     try:
@@ -146,6 +161,7 @@ def load_sheets_any_format(uploaded_file):
                             if unique_vals > best_score:
                                 best_score = unique_vals
                                 best_row = i
+
                         # Baca ulang sheet dengan baris header terbaik
                         df = pd.read_excel(uploaded_file, sheet_name=sheet_name, header=best_row)
                         st.success(f"✅ Header otomatis terdeteksi di baris ke-{best_row+1} untuk {sheet_name}")
@@ -165,12 +181,7 @@ def load_sheets_any_format(uploaded_file):
             data_gabungan = pd.concat(data_frames, ignore_index=True, sort=False)
             st.subheader("📄 Data Gabungan (berdasarkan nama kolom, header otomatis)")
             st.dataframe(data_gabungan)
-       else:
-            uploaded_file.seek(0)
-            return pd.read_excel(uploaded_file, sheet_name=None)
-    except Exception as e:
-        st.error(f"❌ Gagal membaca {uploaded_file.name}: {e}")
-        return None
+            
 
 
 # ======================
